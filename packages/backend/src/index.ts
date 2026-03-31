@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 import { createServer } from 'node:http';
 import { setPersistence } from 'y-websocket/bin/utils';
 import { InMemoryDocRepository } from './repositories/InMemoryDocRepository.js';

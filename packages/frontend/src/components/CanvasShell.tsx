@@ -3,8 +3,13 @@ import { Group, Textbox } from 'fabric';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import { FabricCanvas } from './FabricCanvas';
 import styles from './CanvasShell.module.css';
+import { PromptBar } from './PromptBar';
 import type { ToolId } from '../types/canvas';
 import { bindYjsToFabricCanvas } from '../libs/canvas/bindYjsToFabric';
+import {
+  buildAiLayoutElementsFromCanvas,
+  requestAiLayout,
+} from '../libs/ai/aiLayoutClient.ts';
 import {
   createArrow,
   createLabeledCircle,
@@ -19,10 +24,16 @@ const CANVAS_MIN_H = 520;
 export function CanvasShell() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const fabricRef = useRef<FabricCanvasType | null>(null);
+  const yjsBindingRef = useRef<ReturnType<typeof bindYjsToFabricCanvas> | null>(
+    null,
+  );
   const [activeCount, setActiveCount] = useState(0);
   const [activeObject, setActiveObject] = useState<FabricObject | null>(null);
   const [size, setSize] = useState({ w: CANVAS_MIN_W, h: CANVAS_MIN_H });
   const [activeTool, setActiveTool] = useState<ToolId>('select');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatusText, setAiStatusText] = useState<string>('');
+  const [yjsReady, setYjsReady] = useState(false);
 
   const toolBtnClass = (id: ToolId) =>
     `${styles.toolBtn} ${activeTool === id ? styles.toolBtnActive : ''}`;
@@ -51,6 +62,17 @@ export function CanvasShell() {
       room: 'yjs?doc=default',
       mapName: 'objects',
     });
+    yjsBindingRef.current = yjsBinding;
+    setYjsReady(false);
+
+    const syncPoll = window.setInterval(() => {
+      const b = yjsBindingRef.current;
+      if (!b) return;
+      if (b.isSynced()) {
+        setYjsReady(true);
+        window.clearInterval(syncPoll);
+      }
+    }, 200);
 
     const updateActive = () => {
       const active = c.getActiveObjects();
@@ -139,6 +161,7 @@ export function CanvasShell() {
     c.requestRenderAll();
 
     return () => {
+      window.clearInterval(syncPoll);
       window.removeEventListener('keydown', onKeyDown);
       c.off('selection:created', updateActive);
       c.off('selection:updated', updateActive);
@@ -150,8 +173,63 @@ export function CanvasShell() {
       c.off('mouse:down', onMouseDown);
       c.off('mouse:dblclick', onMouseDblClick);
       yjsBinding.destroy();
+      yjsBindingRef.current = null;
     };
   }, []);
+
+  const runAiLayout = useCallback(
+    async (instruction: string) => {
+      const canvas = fabricRef.current;
+      const binding = yjsBindingRef.current;
+      if (!canvas || !binding) return;
+
+      if (!binding.isSynced()) {
+        setAiStatusText('Syncing… try again in a moment.');
+        return;
+      }
+
+      setAiLoading(true);
+      setAiStatusText('Thinking…');
+      try {
+        const yRecordsById = binding.getRecordsById();
+        const elements = buildAiLayoutElementsFromCanvas(canvas, yRecordsById);
+        const objectCount = canvas.getObjects().length;
+        if (elements.length === 0 && objectCount > 0) {
+          setAiStatusText(
+            'Shapes are visible but could not be read for AI. Try refreshing the page.',
+          );
+          return;
+        }
+        const result = await requestAiLayout({
+          apiBaseUrl: 'http://localhost:4000',
+          req: {
+            instruction,
+            elements,
+            canvasWidth: size.w,
+            canvasHeight: size.h,
+            doc: 'default',
+            mapName: 'objects',
+          },
+        });
+        const hasMoves = result.elements.length > 0;
+        const hasCreates = result.creates.length > 0;
+        if (!hasMoves && !hasCreates) {
+          setAiStatusText(
+            result.reasoning ||
+              'No changes. Try asking to add a shape (e.g. “add a circle”) or to rearrange existing ones.',
+          );
+        } else {
+          setAiStatusText('');
+        }
+      } catch (e) {
+        setAiStatusText(e instanceof Error ? e.message : 'AI layout failed');
+        throw e;
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [size.h, size.w],
+  );
 
   const setActive = useCallback((obj: FabricObject) => {
     const c = fabricRef.current;
@@ -329,6 +407,14 @@ export function CanvasShell() {
         </div>
       </header>
 
+      <PromptBar
+        disabled={aiLoading || !yjsReady}
+        statusText={
+          !yjsReady ? 'Connecting…' : aiLoading ? 'Loading…' : aiStatusText
+        }
+        onSubmit={runAiLayout}
+      />
+
       <div className={styles.workbench}>
         <aside className={styles.leftRail}>
           <div className={styles.railGroup}>
@@ -462,7 +548,10 @@ export function CanvasShell() {
         </aside>
 
         <main className={styles.stage}>
-          <div ref={wrapperRef} className={styles.canvasWrap}>
+          <div
+            ref={wrapperRef}
+            className={`${styles.canvasWrap} ${aiLoading ? styles.canvasWrapLoading : ''}`}
+          >
             <FabricCanvas
               className={styles.canvas}
               width={size.w}

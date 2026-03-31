@@ -11,6 +11,8 @@ import {
 
 export type YjsFabricBinding = {
   destroy: () => void;
+  getRecordsById: () => Map<string, CanvasObjectRecord>;
+  isSynced: () => boolean;
 };
 
 export function bindYjsToFabricCanvas(opts: {
@@ -28,8 +30,9 @@ export function bindYjsToFabricCanvas(opts: {
   const ymap = ydoc.getMap<CanvasObjectRecord>(mapName);
 
   let applyingRemote = false;
+  let synced = false;
 
-  const applyFromYjs = () => {
+  const applyFromYjs = (opts?: { animatePositions?: boolean }) => {
     applyingRemote = true;
     try {
       const liveIds = new Set<string>();
@@ -43,7 +46,35 @@ export function bindYjsToFabricCanvas(opts: {
 
       ymap.forEach((rec, id) => {
         const obj = ensureObjectForRecord(canvas, id, rec);
-        applyRecordToObject(obj, rec);
+        if (opts?.animatePositions) {
+          const fromLeft = typeof obj.left === 'number' ? obj.left : 0;
+          const fromTop = typeof obj.top === 'number' ? obj.top : 0;
+          applyRecordToObject(obj, rec);
+          const toLeft = typeof rec.left === 'number' ? rec.left : fromLeft;
+          const toTop = typeof rec.top === 'number' ? rec.top : fromTop;
+
+          const anyObj = obj as unknown as {
+            animate?: (
+              props: Record<string, number>,
+              options: { duration: number; onChange: () => void },
+            ) => void;
+          };
+          if (typeof anyObj.animate === 'function') {
+            anyObj.animate(
+              { left: toLeft, top: toTop },
+              {
+                duration: 300,
+                onChange: () => canvas.requestRenderAll(),
+              },
+            );
+          } else {
+            obj.set({ left: toLeft, top: toTop });
+          }
+          // Keep zIndex stable after reposition.
+          canvas.requestRenderAll();
+        } else {
+          applyRecordToObject(obj, rec);
+        }
       });
 
       canvas.requestRenderAll();
@@ -52,10 +83,22 @@ export function bindYjsToFabricCanvas(opts: {
     }
   };
 
-  const onYjsChange = () => applyFromYjs();
-  ymap.observe(onYjsChange);
+  const onYjsChange = (
+    evt: {
+      changes?: { keys?: Map<string, unknown> };
+    } | null,
+  ) => {
+    const keyCount =
+      evt?.changes?.keys && typeof evt.changes.keys.size === 'number'
+        ? evt.changes.keys.size
+        : 0;
+    // Heuristic: bulk updates (2+ keys) are likely AI layout → animate.
+    applyFromYjs({ animatePositions: keyCount >= 2 });
+  };
+  ymap.observe(onYjsChange as unknown as (evt: unknown) => void);
   provider.on('sync', (isSynced: boolean) => {
-    if (isSynced) applyFromYjs();
+    synced = isSynced;
+    if (isSynced) applyFromYjs({ animatePositions: false });
   });
 
   const upsertToYjs = (obj: FabricObject) => {
@@ -119,6 +162,12 @@ export function bindYjsToFabricCanvas(opts: {
       provider.destroy();
       ydoc.destroy();
     },
+    getRecordsById: () => {
+      const m = new Map<string, CanvasObjectRecord>();
+      ymap.forEach((rec, id) => m.set(id, rec));
+      return m;
+    },
+    isSynced: () => synced,
   };
 
   return binding;

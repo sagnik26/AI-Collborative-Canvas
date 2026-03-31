@@ -10,6 +10,9 @@ declare module 'y-websocket/bin/utils' {
 
   export function setPersistence(persistence: YjsPersistence | null): void;
 
+  // Not typed upstream, but exported by y-websocket and needed for server-side writes.
+  export function getYDoc(docName: string): import('yjs').Doc;
+
   export function setupWSConnection(
     conn: import('ws').WebSocket,
     req: import('node:http').IncomingMessage,

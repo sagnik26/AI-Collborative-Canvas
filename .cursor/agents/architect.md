@@ -13,7 +13,7 @@ Read `CONTEXT.md` at the workspace root for full architecture context.
 
 ## Project Architecture
 
-Nx monorepo: canvas-fe (React + Fabric.js + Yjs) ↔ canvas-be (Express + y-websocket + Claude API)
+Nx monorepo: canvas-fe (React + Fabric.js + Yjs) ↔ canvas-be (Express + y-websocket + OpenAI API)
 
 ### Core Constraints
 

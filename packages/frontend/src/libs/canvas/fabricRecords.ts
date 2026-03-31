@@ -9,15 +9,39 @@ import {
   createText,
 } from './fabricFactories';
 
+/** Fabric `type` getter returns lowercased class name (e.g. `group`, `textbox`). */
+function fabricTypeLower(obj: FabricObject) {
+  const t = (obj as unknown as { type?: unknown }).type;
+  return typeof t === 'string' ? t.toLowerCase() : '';
+}
+
+function isGroupLike(obj: FabricObject) {
+  return obj instanceof Group || fabricTypeLower(obj) === 'group';
+}
+
+function isLineLike(obj: FabricObject) {
+  return obj instanceof Line || fabricTypeLower(obj) === 'line';
+}
+
+function isTextboxLike(obj: FabricObject) {
+  return obj instanceof Textbox || fabricTypeLower(obj) === 'textbox';
+}
+
 export function getObjectId(obj: FabricObject) {
-  const anyObj = obj as unknown as { id?: unknown };
-  return typeof anyObj.id === 'string' ? anyObj.id : null;
+  const anyObj = obj as unknown as {
+    id?: unknown;
+    get?: (key: string) => unknown;
+  };
+  if (typeof anyObj.id === 'string') return anyObj.id;
+  const fromGet = typeof anyObj.get === 'function' ? anyObj.get('id') : null;
+  if (typeof fromGet === 'string') return fromGet;
+  return null;
 }
 
 export function getKind(obj: FabricObject): CanvasObjectKind | null {
-  if (obj instanceof Line) return 'line';
-  if (obj instanceof Textbox) return 'text';
-  if (obj instanceof Group) {
+  if (isLineLike(obj)) return 'line';
+  if (isTextboxLike(obj)) return 'text';
+  if (isGroupLike(obj)) {
     const id = getObjectId(obj);
     if (id?.startsWith('arrow_')) return 'arrow';
     if (id?.startsWith('rect_')) return 'rect';
@@ -80,15 +104,16 @@ export function serializeObject(obj: FabricObject): CanvasObjectRecord | null {
   if (kind === 'rect' || kind === 'circle' || kind === 'arrow') {
     const fillFromObj = (obj as unknown as { fill?: unknown }).fill;
     if (typeof fillFromObj === 'string') rec.fill = fillFromObj;
-    if (obj instanceof Group) {
-      const shape = obj.getObjects()[0] as unknown as {
+    if (isGroupLike(obj)) {
+      const g = obj as Group;
+      const shape = g.getObjects()[0] as unknown as {
         fill?: unknown;
         stroke?: unknown;
       };
       if (typeof shape?.fill === 'string') rec.fill = shape.fill;
       else if (typeof shape?.stroke === 'string') rec.fill = shape.stroke;
 
-      const label = obj.getObjects().find((o) => o instanceof Textbox) as
+      const label = g.getObjects().find((o) => o instanceof Textbox) as
         | Textbox
         | undefined;
       if (label) {
@@ -131,12 +156,13 @@ export function applyRecordToObject(
       });
     }
     if (typeof rec.fill === 'string') obj.set('stroke', rec.fill);
-  } else if (obj instanceof Group) {
-    const shape = obj.getObjects()[0] as unknown as {
+  } else if (isGroupLike(obj)) {
+    const g = obj as Group;
+    const shape = g.getObjects()[0] as unknown as {
       set?: (k: string, v: unknown) => void;
     };
     if (shape?.set && typeof rec.fill === 'string') shape.set('fill', rec.fill);
-    const label = obj.getObjects().find((o) => o instanceof Textbox) as
+    const label = g.getObjects().find((o) => o instanceof Textbox) as
       | Textbox
       | undefined;
     if (label && typeof rec.text === 'string') label.set('text', rec.text);

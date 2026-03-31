@@ -18,7 +18,7 @@ You are a TDD specialist for the Moda Canvas project. Testing framework is **Vit
 
 ### Must Test (canvas-be)
 
-- POST /ai/layout endpoint (mock Claude API)
+- POST /ai/layout endpoint (mock OpenAI API)
 - Request validation rejects malformed input
 - Response writes into Yjs document correctly
 - Error responses for API failures

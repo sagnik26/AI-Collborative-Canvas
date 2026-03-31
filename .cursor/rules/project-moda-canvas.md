@@ -16,7 +16,7 @@ Nx monorepo with two apps and three shared libs:
 | Project        | Type | Stack                                                                    |
 | -------------- | ---- | ------------------------------------------------------------------------ |
 | canvas-fe      | App  | Vite + React + TypeScript + Fabric.js + Yjs + Tailwind                   |
-| canvas-be      | App  | Node.js + Express + y-websocket + Anthropic SDK                          |
+| canvas-be      | App  | Node.js + Express + y-websocket + OpenAI SDK                             |
 | shared-types   | Lib  | TypeScript interfaces (CanvasElement, AILayoutRequest, AILayoutResponse) |
 | shared-prompts | Lib  | LLM prompt templates for layout reasoning                                |
 | shared-utils   | Lib  | Zod schemas, serialization helpers                                       |

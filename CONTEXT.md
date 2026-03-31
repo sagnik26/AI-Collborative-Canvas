@@ -16,7 +16,7 @@ This prototype demonstrates the three core engineering challenges Moda's product
 moda-canvas/
 ├── apps/
 │   ├── canvas-fe/          # Vite + React + Fabric.js + Yjs
-│   └── canvas-be/          # Node.js + Express + y-websocket + Claude API
+│   └── canvas-be/          # Node.js + Express + y-websocket + OpenAI API
 ├── libs/
 │   ├── shared-types/       # CanvasElement, AILayoutRequest, AILayoutResponse
 │   ├── shared-prompts/     # LLM system prompt templates
@@ -30,8 +30,8 @@ moda-canvas/
 ```
 User prompt → canvas-fe serializes Yjs doc to JSON
   → POST /ai/layout to canvas-be
-  → canvas-be calls Claude API with elements + instruction
-  → Claude returns new {id, x, y} coordinates
+  → canvas-be calls OpenAI API with elements + instruction
+  → OpenAI returns new {id, x, y} coordinates
   → canvas-be writes new positions into Yjs document
   → y-websocket broadcasts CRDT update to all clients
   → canvas-fe animates elements to new positions (Fabric.js animate, 300ms)
@@ -48,7 +48,7 @@ Native JSON serialization with `canvas.toJSON()` / `canvas.loadFromJSON()`. This
 **Separate Express + y-websocket (not Next.js):**
 WebSocket connections need a long-lived process. Next.js API routes on Vercel are serverless (spin up/die per request), which is fundamentally incompatible with persistent WebSocket state. The server holds both REST endpoints and WebSocket connections in the same process.
 
-**Claude API for layout reasoning:**
+**OpenAI API for layout reasoning:**
 The LLM receives canvas state as a flat JSON array of elements and a natural language instruction. It returns new coordinates. The system prompt constrains output to strict JSON. We validate the response with Zod before writing to the CRDT.
 
 ## Shared Types Contract
@@ -78,7 +78,7 @@ interface AILayoutRequest {
   canvasHeight: number;
 }
 
-// What Claude returns (validated by Zod)
+// What the model returns (validated by Zod)
 interface AILayoutResponse {
   elements: Array<{
     id: string;
@@ -117,9 +117,9 @@ interface AILayoutResponse {
 
 - Express route: POST /ai/layout in canvas-be
 - Canvas state serializer: Yjs doc → CanvasElement[] (using shared-utils)
-- Claude API integration using @anthropic-ai/sdk
+- OpenAI API integration using the OpenAI SDK
 - System prompt from shared-prompts
-- Zod validation of Claude's JSON response (using shared-utils)
+- Zod validation of the model’s JSON response (using shared-utils)
 
 **Afternoon — Integration:**
 
