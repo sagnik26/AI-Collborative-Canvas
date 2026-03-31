@@ -2,7 +2,15 @@
   "name": "@ai-collaborative-canvas/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "dev": "concurrently -n frontend,backend -c blue,green \"pnpm -C packages/frontend dev\" \"pnpm -C packages/backend dev\"",
+    "dev:frontend": "pnpm -C packages/frontend dev",
+    "dev:backend": "pnpm -C packages/backend dev",
+    "build": "pnpm -C packages/frontend build && pnpm -C packages/backend build",
+    "start": "pnpm -C packages/backend start",
+    "typecheck": "pnpm -C packages/frontend build -- --mode development && pnpm -C packages/backend typecheck",
+    "format": "prettier . --check"
+  },
   "private": true,
   "dependencies": {},
   "devDependencies": {
@@ -10,6 +18,7 @@
     "@swc-node/register": "~1.11.1",
     "@swc/core": "~1.15.5",
     "@swc/helpers": "~0.5.18",
+    "concurrently": "^9.2.1",
     "nx": "22.6.3",
     "prettier": "~3.6.2",
     "tslib": "^2.3.0",
