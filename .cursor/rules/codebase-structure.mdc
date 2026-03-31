@@ -1,0 +1,48 @@
+---
+description: Canonical monorepo structure and where code belongs
+alwaysApply: true
+---
+
+# Codebase structure (pnpm workspace)
+
+## Top-level
+
+- `package.json`: root scripts orchestrating `packages/*` (frontend + backend)
+- `pnpm-workspace.yaml`: workspace config
+- `scripts/`: repo-wide scripts (e.g. dependency checks)
+- `packages/`: product code
+
+## Frontend (`packages/frontend`)
+
+- **Entry**: `src/main.tsx` → `src/App.tsx`
+- **UI components**: `src/components/*`
+- **Canvas/Yjs/Fabric integration**: `src/libs/canvas/*`
+- **Shared types**: `src/types/*`
+- **Assets/styles**: `src/assets/*`, `src/*.css`
+
+When adding frontend code:
+- Put reusable non-React logic in `src/libs/**`.
+- Put new UI in `src/components/**` (React `.tsx`).
+- Keep shared data contracts in `src/types/**`.
+
+## Backend (`packages/backend`)
+
+- **Entry**: `src/index.ts`
+- **HTTP transport**: `src/transport/http/*` (`createApp`, `routes`)
+- **WS transport**: `src/transport/ws/*` (Yjs websocket attachment)
+- **Controllers**: `src/controllers/*` (route handlers)
+- **Services**: `src/services/*` (core business/collab logic)
+- **Repositories**: `src/repositories/*` (doc/persistence abstractions + impls)
+- **Types/vendor**: `src/types/*` (shared backend types + vendored d.ts)
+
+When adding backend code:
+- Keep Express wiring in `transport/http`.
+- Put request handlers in `controllers`, logic in `services`, storage in `repositories`.
+- Avoid mixing transport concerns (Express/ws) into services/repositories.
+
+## Module/import conventions
+
+- Workspace is ESM (`"type": "module"`). Prefer **relative imports** within a package.
+- In frontend TS bundler resolution, **use explicit `.ts`/`.tsx` extensions** for local relative imports when needed to avoid editor/bundler resolution mismatches.
+- Don’t import frontend code from backend or vice versa (no cross-package deep imports).
+

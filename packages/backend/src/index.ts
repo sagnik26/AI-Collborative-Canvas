@@ -1,22 +1,26 @@
-import cors from "cors";
-import express from "express";
-
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
-app.get("/api/hello", (_req, res) => {
-  res.json({ message: "Hello from backend!" });
-});
+import { createServer } from "node:http";
+import { setPersistence } from "y-websocket/bin/utils";
+import { InMemoryDocRepository } from "./repositories/InMemoryDocRepository.js";
+import { YjsPersistenceRepository } from "./repositories/YjsPersistenceRepository.js";
+import { YjsCollabService } from "./services/YjsCollabService.js";
+import { createApp } from "./transport/http/createApp.js";
+import { attachYjsWebsocket } from "./transport/ws/attachYjsWebsocket.js";
 
 const port = Number(process.env.PORT ?? 4000);
-app.listen(port, () => {
+
+const app = createApp();
+const server = createServer(app);
+
+const docRepo = new InMemoryDocRepository();
+const persistence = new YjsPersistenceRepository(docRepo).asYWebsocketPersistence();
+setPersistence(persistence);
+
+const collab = new YjsCollabService();
+attachYjsWebsocket(server, collab);
+
+server.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend listening on http://localhost:${port}`);
+  console.log(`Yjs WebSocket listening on ws://localhost:${port}/yjs`);
 });
 

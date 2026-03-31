@@ -8,6 +8,7 @@
     "dev:backend": "pnpm -C packages/backend dev",
     "build": "pnpm -C packages/frontend build && pnpm -C packages/backend build",
     "start": "pnpm -C packages/backend start",
+    "check:deps": "node scripts/check-shared-deps.mjs",
     "typecheck": "pnpm -C packages/frontend build -- --mode development && pnpm -C packages/backend typecheck",
     "format": "prettier . --check"
   },

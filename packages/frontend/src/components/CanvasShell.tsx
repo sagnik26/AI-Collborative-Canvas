@@ -1,157 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circle, Group, Line, Rect, Textbox, Triangle } from 'fabric';
+import { Group, Textbox } from 'fabric';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import { FabricCanvas } from './FabricCanvas';
 import styles from './CanvasShell.module.css';
+import type { ToolId } from '../types/canvas';
+import { bindYjsToFabricCanvas } from '../libs/canvas/bindYjsToFabric';
+import {
+  createArrow,
+  createLabeledCircle,
+  createLabeledRect,
+  createLine,
+  createText,
+} from '../libs/canvas/fabricFactories';
 
 const CANVAS_MIN_W = 720;
 const CANVAS_MIN_H = 520;
-
-function randomId(prefix: string) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getCanvasCenter(c: FabricCanvasType) {
-  // In Fabric, this is in canvas coordinates and respects viewport transforms.
-  const p = c.getCenterPoint();
-  return { x: p.x, y: p.y };
-}
-
-function setObjectCenter(c: FabricCanvasType, obj: FabricObject) {
-  const { x, y } = getCanvasCenter(c);
-  obj.set({ left: x, top: y, originX: 'center', originY: 'center' });
-  obj.setCoords();
-}
-
-function createLabeledRect(c: FabricCanvasType) {
-  const rect = new Rect({
-    width: 240,
-    height: 150,
-    fill: '#6d28d9',
-    rx: 12,
-    ry: 12,
-    stroke: 'rgba(255,255,255,0.22)',
-    strokeWidth: 1,
-    originX: 'center',
-    originY: 'center',
-  });
-
-  const label = new Textbox('Label', {
-    width: 200,
-    fontSize: 20,
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-    fill: '#f3f4f6',
-    textAlign: 'center',
-    editable: true,
-    originX: 'center',
-    originY: 'center',
-  });
-
-  const group = new Group([rect, label], {
-    subTargetCheck: true,
-    objectCaching: false,
-  });
-  group.set('id', randomId('rect'));
-  group.setControlsVisibility({ mtr: true });
-  setObjectCenter(c, group);
-  return group;
-}
-
-function createLabeledCircle(c: FabricCanvasType) {
-  const circle = new Circle({
-    radius: 80,
-    fill: '#0ea5e9',
-    stroke: 'rgba(255,255,255,0.22)',
-    strokeWidth: 1,
-    originX: 'center',
-    originY: 'center',
-  });
-
-  const label = new Textbox('Label', {
-    width: 170,
-    fontSize: 18,
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-    fill: '#f3f4f6',
-    textAlign: 'center',
-    editable: true,
-    originX: 'center',
-    originY: 'center',
-  });
-
-  const group = new Group([circle, label], {
-    subTargetCheck: true,
-    objectCaching: false,
-  });
-  group.set('id', randomId('circle'));
-  group.setControlsVisibility({ mtr: true });
-  setObjectCenter(c, group);
-  return group;
-}
-
-function createText(c: FabricCanvasType) {
-  const text = new Textbox('Double-click to edit', {
-    width: 320,
-    fontSize: 22,
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-    fill: '#f3f4f6',
-    editable: true,
-    originX: 'center',
-    originY: 'center',
-  });
-  text.set('id', randomId('text'));
-  setObjectCenter(c, text);
-  return text;
-}
-
-function createLine(c: FabricCanvasType) {
-  const { x, y } = getCanvasCenter(c);
-  const line = new Line([x - 140, y, x + 140, y], {
-    stroke: 'rgba(255,255,255,0.75)',
-    strokeWidth: 3,
-    strokeLineCap: 'round',
-    selectable: true,
-  });
-  line.set('id', randomId('line'));
-  line.setControlsVisibility({ mtr: true });
-  line.setCoords();
-  return line;
-}
-
-function createArrow(c: FabricCanvasType) {
-  const { x, y } = getCanvasCenter(c);
-  const x1 = x - 140;
-  const y1 = y;
-  const x2 = x + 140;
-  const y2 = y;
-
-  const shaft = new Line([x1, y1, x2, y2], {
-    stroke: 'rgba(255,255,255,0.8)',
-    strokeWidth: 3,
-    strokeLineCap: 'round',
-    originX: 'center',
-    originY: 'center',
-  });
-
-  const head = new Triangle({
-    width: 16,
-    height: 16,
-    fill: 'rgba(255,255,255,0.9)',
-    left: x2,
-    top: y2,
-    originX: 'center',
-    originY: 'center',
-    angle: 90,
-  });
-
-  const group = new Group([shaft, head], {
-    subTargetCheck: true,
-    objectCaching: false,
-  });
-  group.set('id', randomId('arrow'));
-  group.setControlsVisibility({ mtr: true });
-  setObjectCenter(c, group);
-  return group;
-}
 
 export function CanvasShell() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -159,7 +22,6 @@ export function CanvasShell() {
   const [activeCount, setActiveCount] = useState(0);
   const [activeObject, setActiveObject] = useState<FabricObject | null>(null);
   const [size, setSize] = useState({ w: CANVAS_MIN_W, h: CANVAS_MIN_H });
-  type ToolId = 'select' | 'rect' | 'circle' | 'text' | 'line' | 'arrow';
   const [activeTool, setActiveTool] = useState<ToolId>('select');
 
   const toolBtnClass = (id: ToolId) =>
@@ -183,6 +45,12 @@ export function CanvasShell() {
 
   const onReady = useCallback((c: FabricCanvasType) => {
     fabricRef.current = c;
+    const yjsBinding = bindYjsToFabricCanvas({
+      canvas: c,
+      wsBaseUrl: 'ws://localhost:4000',
+      room: 'yjs?doc=default',
+      mapName: 'objects',
+    });
 
     const updateActive = () => {
       const active = c.getActiveObjects();
@@ -281,6 +149,7 @@ export function CanvasShell() {
       c.off('text:changed', updateActive);
       c.off('mouse:down', onMouseDown);
       c.off('mouse:dblclick', onMouseDblClick);
+      yjsBinding.destroy();
     };
   }, []);
 
