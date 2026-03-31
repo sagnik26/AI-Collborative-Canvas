@@ -1,5 +1,5 @@
-import type { DocRepository } from "./DocRepository.js";
-import type { DocName, DocUpdateBytes } from "../types/yjs.js";
+import type { DocRepository } from './DocRepository.js';
+import type { DocName, DocUpdateBytes } from '../types/yjs.js';
 
 export class InMemoryDocRepository implements DocRepository {
   private readonly stateByDoc = new Map<DocName, DocUpdateBytes>();
@@ -12,4 +12,3 @@ export class InMemoryDocRepository implements DocRepository {
     this.stateByDoc.set(docName, bytes);
   }
 }
-

@@ -14,4 +14,3 @@ export type CanvasObjectRecord = {
 };
 
 export type ToolId = CanvasObjectKind | 'select';
-

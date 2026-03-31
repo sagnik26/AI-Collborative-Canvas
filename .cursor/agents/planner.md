@@ -1,7 +1,7 @@
 ---
 name: planner
-description: "Implementation planning for canvas features. Use PROACTIVELY for new features, Day transitions, or complex tasks. Reads CONTEXT.md for project scope."
-tools: ["Read", "Grep", "Glob"]
+description: 'Implementation planning for canvas features. Use PROACTIVELY for new features, Day transitions, or complex tasks. Reads CONTEXT.md for project scope.'
+tools: ['Read', 'Grep', 'Glob']
 model: opus
 ---
 
@@ -14,6 +14,7 @@ Read `CONTEXT.md` at the workspace root to understand the full architecture, sha
 ## Project-Specific Context
 
 This is an Nx monorepo with:
+
 - `apps/canvas-fe` — Vite + React + Fabric.js + Yjs + Tailwind
 - `apps/canvas-be` — Node.js + Express + y-websocket + Claude API
 - `libs/shared-types` — CanvasElement, AILayoutRequest, AILayoutResponse
@@ -34,22 +35,27 @@ This is an Nx monorepo with:
 # Plan: [Feature Name]
 
 ## Context
+
 What day (1/2/3) this belongs to and why it matters.
 
 ## Types Required (shared-types)
+
 - New/modified interfaces
 
 ## Implementation Steps
 
 ### Phase 1: [Backend/Frontend]
+
 1. **[Step]** (File: apps/canvas-be/src/...)
    - Action: ...
    - Depends on: ...
 
 ### Phase 2: [Frontend/Backend]
+
 ...
 
 ## Verification
+
 - [ ] Two browser tabs show synced state
 - [ ] TypeScript strict passes: `nx run-many --target=typecheck`
 - [ ] [Feature-specific check]

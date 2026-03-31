@@ -4,14 +4,18 @@
  */
 let data = '';
 process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { data += chunk; });
+process.stdin.on('data', (chunk) => {
+  data += chunk;
+});
 process.stdin.on('end', () => {
   try {
     const input = JSON.parse(data || '{}');
     const cmd = String(input.command || input.args?.command || '');
     const output = String(input.output || input.result || '');
 
-    if (/nx\s+(build|run-many.*build)|npm\s+run\s+build|pnpm\s+build/.test(cmd)) {
+    if (
+      /nx\s+(build|run-many.*build)|npm\s+run\s+build|pnpm\s+build/.test(cmd)
+    ) {
       console.error('[MODA] Build completed');
     }
 

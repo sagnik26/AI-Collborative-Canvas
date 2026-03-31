@@ -1,7 +1,7 @@
 ---
 name: refactor-cleaner
-description: "Dead code cleanup and consolidation. Use after Day 3 polish or when files exceed 400 lines."
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+description: 'Dead code cleanup and consolidation. Use after Day 3 polish or when files exceed 400 lines.'
+tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']
 model: sonnet
 ---
 

@@ -58,36 +58,36 @@ These are the core interfaces in `shared-types` that both apps import:
 ```typescript
 // The atomic unit on the canvas
 interface CanvasElement {
-  id: string
-  type: 'rect' | 'text' | 'circle' | 'image'
-  label: string
-  x: number
-  y: number
-  width: number
-  height: number
-  fill: string
-  rotation: number
-  zIndex: number
+  id: string;
+  type: 'rect' | 'text' | 'circle' | 'image';
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill: string;
+  rotation: number;
+  zIndex: number;
 }
 
 // What we send to the AI endpoint
 interface AILayoutRequest {
-  elements: CanvasElement[]
-  instruction: string         // Natural language: "arrange in a 2x2 grid"
-  canvasWidth: number
-  canvasHeight: number
+  elements: CanvasElement[];
+  instruction: string; // Natural language: "arrange in a 2x2 grid"
+  canvasWidth: number;
+  canvasHeight: number;
 }
 
 // What Claude returns (validated by Zod)
 interface AILayoutResponse {
   elements: Array<{
-    id: string
-    x: number
-    y: number
-    width?: number            // Optional resize
-    height?: number
-  }>
-  reasoning?: string          // Optional explanation of layout logic
+    id: string;
+    x: number;
+    y: number;
+    width?: number; // Optional resize
+    height?: number;
+  }>;
+  reasoning?: string; // Optional explanation of layout logic
 }
 ```
 
@@ -96,12 +96,14 @@ interface AILayoutResponse {
 ### Day 1: Canvas + Collaborative Sync
 
 **Morning — Canvas foundation:**
+
 - Fabric.js canvas component with responsive sizing
 - Toolbar: add rectangle, add text, add circle, color picker
 - Drag, resize, select, multi-select, delete
 - Canvas state serialization to CanvasElement[] using shared-types
 
 **Afternoon — Yjs integration:**
+
 - y-websocket server in canvas-be (attached to same HTTP server as Express)
 - Yjs document with Y.Map for each canvas element
 - Bind Fabric.js events (object:moving, object:scaling) → Yjs updates
@@ -112,6 +114,7 @@ interface AILayoutResponse {
 ### Day 2: AI Layout Engine
 
 **Morning — Backend:**
+
 - Express route: POST /ai/layout in canvas-be
 - Canvas state serializer: Yjs doc → CanvasElement[] (using shared-utils)
 - Claude API integration using @anthropic-ai/sdk
@@ -119,6 +122,7 @@ interface AILayoutResponse {
 - Zod validation of Claude's JSON response (using shared-utils)
 
 **Afternoon — Integration:**
+
 - Write validated positions back into Yjs document on server
 - Client detects bulk position changes, triggers Fabric.js animate() (300ms ease)
 - PromptBar component with submit and Cmd+Enter shortcut
@@ -128,12 +132,14 @@ interface AILayoutResponse {
 ### Day 3: Polish + Deploy
 
 **Morning — UX:**
+
 - Yjs UndoManager for collaborative undo/redo (Ctrl+Z)
 - Element labels and color customization
 - Error handling: API failures, disconnect recovery, invalid AI output
 - Toast notifications for connection status
 
 **Afternoon — Ship:**
+
 - Deploy canvas-fe to Vercel
 - Deploy canvas-be to Railway (long-lived process for WebSockets)
 - README with architecture decisions and setup instructions

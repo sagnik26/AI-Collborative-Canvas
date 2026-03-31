@@ -344,10 +344,7 @@ export function CanvasShell() {
               type="button"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path
-                  d="M5 3l14 8-8 2 2 8-3 1-2-8-3 5z"
-                  fill="currentColor"
-                />
+                <path d="M5 3l14 8-8 2 2 8-3 1-2-8-3 5z" fill="currentColor" />
               </svg>
             </button>
 
@@ -408,10 +405,7 @@ export function CanvasShell() {
               type="button"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path
-                  d="M6 7V5h12v2h-5v12h-2V7z"
-                  fill="currentColor"
-                />
+                <path d="M6 7V5h12v2h-5v12h-2V7z" fill="currentColor" />
               </svg>
             </button>
 

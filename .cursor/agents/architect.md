@@ -1,7 +1,7 @@
 ---
 name: architect
-description: "System design specialist for Moda Canvas. Use for Yjs integration decisions, canvas architecture, AI pipeline design, and WebSocket patterns."
-tools: ["Read", "Grep", "Glob"]
+description: 'System design specialist for Moda Canvas. Use for Yjs integration decisions, canvas architecture, AI pipeline design, and WebSocket patterns.'
+tools: ['Read', 'Grep', 'Glob']
 model: opus
 ---
 
@@ -16,6 +16,7 @@ Read `CONTEXT.md` at the workspace root for full architecture context.
 Nx monorepo: canvas-fe (React + Fabric.js + Yjs) ↔ canvas-be (Express + y-websocket + Claude API)
 
 ### Core Constraints
+
 - **Yjs CRDT is the single source of truth** — no state lives outside the Yjs document
 - **Server calls the LLM** — API key server-side, AI writes into CRDT, clients receive via y-websocket
 - **No database** — all state is in-memory Yjs documents
@@ -29,12 +30,15 @@ When making design decisions, document as ADRs:
 # ADR-NNN: [Decision Title]
 
 ## Context
+
 What problem are we solving?
 
 ## Decision
+
 What did we choose?
 
 ## Consequences
+
 - Positive: ...
 - Negative: ...
 - Alternatives considered: ...

@@ -1,7 +1,7 @@
 ---
 name: build-error-resolver
-description: "Fix Nx build and TypeScript errors with minimal changes. Use when build fails or type errors occur. No refactoring — just get it green."
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+description: 'Fix Nx build and TypeScript errors with minimal changes. Use when build fails or type errors occur. No refactoring — just get it green.'
+tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob']
 model: sonnet
 ---
 
@@ -27,13 +27,13 @@ nx graph
 
 ## Common Errors in This Project
 
-| Error | Likely Cause | Fix |
-|-------|-------------|-----|
-| Cannot find module 'shared-types' | Missing tsconfig path alias | Add to tsconfig.base.json paths |
-| Type 'X' not assignable to 'CanvasElement' | Interface mismatch | Update shared-types or fix usage |
-| Property 'x' does not exist on Y.Map | Yjs typing | Use `ymap.get('x') as number` with type guard |
-| Cannot use import statement | ESM/CJS mismatch | Check tsconfig module setting for canvas-be |
-| Fabric types missing | @types/fabric not installed | `pnpm add -D @types/fabric -w` |
+| Error                                      | Likely Cause                | Fix                                           |
+| ------------------------------------------ | --------------------------- | --------------------------------------------- |
+| Cannot find module 'shared-types'          | Missing tsconfig path alias | Add to tsconfig.base.json paths               |
+| Type 'X' not assignable to 'CanvasElement' | Interface mismatch          | Update shared-types or fix usage              |
+| Property 'x' does not exist on Y.Map       | Yjs typing                  | Use `ymap.get('x') as number` with type guard |
+| Cannot use import statement                | ESM/CJS mismatch            | Check tsconfig module setting for canvas-be   |
+| Fabric types missing                       | @types/fabric not installed | `pnpm add -D @types/fabric -w`                |
 
 ## Nx-Specific Issues
 

@@ -1,6 +1,6 @@
-import cors from "cors";
-import express from "express";
-import { registerRoutes } from "./routes.js";
+import cors from 'cors';
+import express from 'express';
+import { registerRoutes } from './routes.js';
 
 export function createApp() {
   const app = express();
@@ -9,4 +9,3 @@ export function createApp() {
   registerRoutes(app);
   return app;
 }
-

@@ -22,7 +22,9 @@ export function bindYjsToFabricCanvas(opts: {
   const { canvas, wsBaseUrl, room, mapName = 'objects' } = opts;
 
   const ydoc = new Y.Doc();
-  const provider = new WebsocketProvider(wsBaseUrl, room, ydoc, { connect: true });
+  const provider = new WebsocketProvider(wsBaseUrl, room, ydoc, {
+    connect: true,
+  });
   const ymap = ydoc.getMap<CanvasObjectRecord>(mapName);
 
   let applyingRemote = false;
@@ -121,4 +123,3 @@ export function bindYjsToFabricCanvas(opts: {
 
   return binding;
 }
-

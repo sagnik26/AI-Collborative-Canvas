@@ -1,7 +1,8 @@
 ---
-description: "Moda Canvas: collaborative AI canvas proof-of-work project context and constraints"
+description: 'Moda Canvas: collaborative AI canvas proof-of-work project context and constraints'
 alwaysApply: true
 ---
+
 # Moda Canvas — Project Rules
 
 ## What This Is
@@ -12,13 +13,13 @@ A proof-of-work prototype for the Founding Engineer role at Moda (moda.app). It 
 
 Nx monorepo with two apps and three shared libs:
 
-| Project | Type | Stack |
-|---------|------|-------|
-| canvas-fe | App | Vite + React + TypeScript + Fabric.js + Yjs + Tailwind |
-| canvas-be | App | Node.js + Express + y-websocket + Anthropic SDK |
-| shared-types | Lib | TypeScript interfaces (CanvasElement, AILayoutRequest, AILayoutResponse) |
-| shared-prompts | Lib | LLM prompt templates for layout reasoning |
-| shared-utils | Lib | Zod schemas, serialization helpers |
+| Project        | Type | Stack                                                                    |
+| -------------- | ---- | ------------------------------------------------------------------------ |
+| canvas-fe      | App  | Vite + React + TypeScript + Fabric.js + Yjs + Tailwind                   |
+| canvas-be      | App  | Node.js + Express + y-websocket + Anthropic SDK                          |
+| shared-types   | Lib  | TypeScript interfaces (CanvasElement, AILayoutRequest, AILayoutResponse) |
+| shared-prompts | Lib  | LLM prompt templates for layout reasoning                                |
+| shared-utils   | Lib  | Zod schemas, serialization helpers                                       |
 
 ## Critical Constraints
 

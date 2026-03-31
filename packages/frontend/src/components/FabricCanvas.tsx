@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef } from "react";
-import { Canvas } from "fabric";
-import type { Canvas as FabricCanvasType } from "fabric";
+import { useEffect, useId, useRef } from 'react';
+import { Canvas } from 'fabric';
+import type { Canvas as FabricCanvasType } from 'fabric';
 
 type FabricCanvasProps = {
   className?: string;
@@ -33,7 +33,7 @@ export function FabricCanvas({
     fabricCanvasRef.current = c;
 
     // Basic defaults for UX.
-    c.backgroundColor = "#0b1020";
+    c.backgroundColor = '#0b1020';
     // Make it easier to grab/drag groups and thin strokes (line/arrow).
     (c as unknown as { targetFindTolerance?: number }).targetFindTolerance = 12;
     c.renderOnAddRemove = true;
@@ -65,4 +65,3 @@ export function FabricCanvas({
     />
   );
 }
-

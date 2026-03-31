@@ -46,7 +46,11 @@ export function serializeObject(obj: FabricObject): CanvasObjectRecord | null {
   const rec: CanvasObjectRecord = { kind, left, top, scaleX, scaleY, angle };
 
   if (kind === 'text') {
-    const t = obj as unknown as { text?: unknown; fontSize?: unknown; fill?: unknown };
+    const t = obj as unknown as {
+      text?: unknown;
+      fontSize?: unknown;
+      fill?: unknown;
+    };
     if (typeof t.text === 'string') rec.text = t.text;
     if (typeof t.fontSize === 'number') rec.fontSize = t.fontSize;
     if (typeof t.fill === 'string') rec.fill = t.fill;
@@ -77,11 +81,16 @@ export function serializeObject(obj: FabricObject): CanvasObjectRecord | null {
     const fillFromObj = (obj as unknown as { fill?: unknown }).fill;
     if (typeof fillFromObj === 'string') rec.fill = fillFromObj;
     if (obj instanceof Group) {
-      const shape = obj.getObjects()[0] as unknown as { fill?: unknown; stroke?: unknown };
+      const shape = obj.getObjects()[0] as unknown as {
+        fill?: unknown;
+        stroke?: unknown;
+      };
       if (typeof shape?.fill === 'string') rec.fill = shape.fill;
       else if (typeof shape?.stroke === 'string') rec.fill = shape.stroke;
 
-      const label = obj.getObjects().find((o) => o instanceof Textbox) as Textbox | undefined;
+      const label = obj.getObjects().find((o) => o instanceof Textbox) as
+        | Textbox
+        | undefined;
       if (label) {
         rec.text = label.text ?? '';
         rec.fontSize = label.fontSize ?? undefined;
@@ -93,7 +102,10 @@ export function serializeObject(obj: FabricObject): CanvasObjectRecord | null {
   return rec;
 }
 
-export function applyRecordToObject(obj: FabricObject, rec: CanvasObjectRecord) {
+export function applyRecordToObject(
+  obj: FabricObject,
+  rec: CanvasObjectRecord,
+) {
   obj.set({
     left: rec.left,
     top: rec.top,
@@ -103,20 +115,33 @@ export function applyRecordToObject(obj: FabricObject, rec: CanvasObjectRecord) 
   });
 
   if (rec.kind === 'text') {
-    if ('text' in obj && typeof rec.text === 'string') obj.set('text', rec.text);
-    if ('fontSize' in obj && typeof rec.fontSize === 'number') obj.set('fontSize', rec.fontSize);
-    if ('fill' in obj && typeof rec.fill === 'string') obj.set('fill', rec.fill);
+    if ('text' in obj && typeof rec.text === 'string')
+      obj.set('text', rec.text);
+    if ('fontSize' in obj && typeof rec.fontSize === 'number')
+      obj.set('fontSize', rec.fontSize);
+    if ('fill' in obj && typeof rec.fill === 'string')
+      obj.set('fill', rec.fill);
   } else if (rec.kind === 'line') {
     if (rec.line) {
-      obj.set({ x1: rec.line.x1, y1: rec.line.y1, x2: rec.line.x2, y2: rec.line.y2 });
+      obj.set({
+        x1: rec.line.x1,
+        y1: rec.line.y1,
+        x2: rec.line.x2,
+        y2: rec.line.y2,
+      });
     }
     if (typeof rec.fill === 'string') obj.set('stroke', rec.fill);
   } else if (obj instanceof Group) {
-    const shape = obj.getObjects()[0] as unknown as { set?: (k: string, v: unknown) => void };
+    const shape = obj.getObjects()[0] as unknown as {
+      set?: (k: string, v: unknown) => void;
+    };
     if (shape?.set && typeof rec.fill === 'string') shape.set('fill', rec.fill);
-    const label = obj.getObjects().find((o) => o instanceof Textbox) as Textbox | undefined;
+    const label = obj.getObjects().find((o) => o instanceof Textbox) as
+      | Textbox
+      | undefined;
     if (label && typeof rec.text === 'string') label.set('text', rec.text);
-    if (label && typeof rec.fontSize === 'number') label.set('fontSize', rec.fontSize);
+    if (label && typeof rec.fontSize === 'number')
+      label.set('fontSize', rec.fontSize);
   } else if (typeof rec.fill === 'string') {
     obj.set('fill', rec.fill);
   }
@@ -131,7 +156,9 @@ export function ensureObjectForRecord(
 ) {
   const existing = c
     .getObjects()
-    .find((o) => getObjectId(o as FabricObject) === id) as FabricObject | undefined;
+    .find((o) => getObjectId(o as FabricObject) === id) as
+    | FabricObject
+    | undefined;
   if (existing) return existing;
 
   let obj: FabricObject;
@@ -145,4 +172,3 @@ export function ensureObjectForRecord(
   c.add(obj);
   return obj;
 }
-

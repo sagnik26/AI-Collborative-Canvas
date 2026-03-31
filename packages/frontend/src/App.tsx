@@ -1,4 +1,4 @@
-import { CanvasShell } from "./components/CanvasShell";
+import { CanvasShell } from './components/CanvasShell';
 
 function App() {
   return <CanvasShell />;

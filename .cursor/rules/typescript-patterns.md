@@ -1,8 +1,9 @@
 ---
-description: "TypeScript patterns extending common rules"
-globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+description: 'TypeScript patterns extending common rules'
+globs: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx']
 alwaysApply: false
 ---
+
 # TypeScript/JavaScript Patterns
 
 > This file extends the common patterns rule with TypeScript/JavaScript specific content.
@@ -11,14 +12,14 @@ alwaysApply: false
 
 ```typescript
 interface ApiResponse<T> {
-  success: boolean
-  data?: T
-  error?: string
+  success: boolean;
+  data?: T;
+  error?: string;
   meta?: {
-    total: number
-    page: number
-    limit: number
-  }
+    total: number;
+    page: number;
+    limit: number;
+  };
 }
 ```
 
@@ -26,14 +27,14 @@ interface ApiResponse<T> {
 
 ```typescript
 export function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
   useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay)
-    return () => clearTimeout(handler)
-  }, [value, delay])
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
 
-  return debouncedValue
+  return debouncedValue;
 }
 ```
 
@@ -41,10 +42,10 @@ export function useDebounce<T>(value: T, delay: number): T {
 
 ```typescript
 interface Repository<T> {
-  findAll(filters?: Filters): Promise<T[]>
-  findById(id: string): Promise<T | null>
-  create(data: CreateDto): Promise<T>
-  update(id: string, data: UpdateDto): Promise<T>
-  delete(id: string): Promise<void>
+  findAll(filters?: Filters): Promise<T[]>;
+  findById(id: string): Promise<T | null>;
+  create(data: CreateDto): Promise<T>;
+  update(id: string, data: UpdateDto): Promise<T>;
+  delete(id: string): Promise<void>;
 }
 ```

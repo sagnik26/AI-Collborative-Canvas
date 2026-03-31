@@ -1,7 +1,8 @@
 ---
-description: "Hooks system: types, auto-accept permissions, TodoWrite best practices"
+description: 'Hooks system: types, auto-accept permissions, TodoWrite best practices'
 alwaysApply: true
 ---
+
 # Hooks System
 
 ## Hook Types
@@ -13,6 +14,7 @@ alwaysApply: true
 ## Auto-Accept Permissions
 
 Use with caution:
+
 - Enable for trusted, well-defined plans
 - Disable for exploratory work
 - Never use dangerously-skip-permissions flag
@@ -21,12 +23,14 @@ Use with caution:
 ## TodoWrite Best Practices
 
 Use TodoWrite tool to:
+
 - Track progress on multi-step tasks
 - Verify understanding of instructions
 - Enable real-time steering
 - Show granular implementation steps
 
 Todo list reveals:
+
 - Out of order steps
 - Missing items
 - Extra unnecessary items

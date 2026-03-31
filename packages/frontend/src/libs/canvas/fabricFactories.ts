@@ -145,4 +145,3 @@ export function createArrow(c: FabricCanvasType) {
   setObjectCenter(c, group);
   return group;
 }
-
