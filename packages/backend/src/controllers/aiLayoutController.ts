@@ -1,6 +1,10 @@
 import type { Request, Response } from 'express';
 import { aiLayoutRequestSchema } from '../schemas/aiLayoutSchemas.js';
 import { OpenAiLayoutService } from '../services/OpenAiLayoutService.js';
+import {
+  appendConversationPair,
+  getConversationHistory,
+} from '../services/conversationStore.js';
 import { YjsCanvasApplyService } from '../services/YjsCanvasApplyService.js';
 
 function getBearerToken(req: Request) {
@@ -30,8 +34,26 @@ export async function aiLayoutController(req: Request, res: Response) {
   }
 
   try {
+    const history = getConversationHistory(parsed.data.roomId);
+    const currentUserContent = JSON.stringify(
+      {
+        instruction: parsed.data.instruction,
+        canvas: { width: parsed.data.canvasWidth, height: parsed.data.canvasHeight },
+        elements: parsed.data.elements,
+      },
+      null,
+      2,
+    );
     const svc = new OpenAiLayoutService({ apiKey: getOpenAiApiKey(req) });
-    const result = await svc.layout(parsed.data);
+    const { result, assistantText } = await svc.layout({
+      req: parsed.data,
+      messages: [...history, { role: 'user', content: currentUserContent }],
+    });
+    appendConversationPair({
+      roomId: parsed.data.roomId,
+      userContent: parsed.data.instruction,
+      assistantContent: assistantText,
+    });
     new YjsCanvasApplyService().applyLayout({
       docName: parsed.data.doc,
       mapName: parsed.data.mapName,

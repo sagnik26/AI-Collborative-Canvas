@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { normalizeCreateFill } from '../utils/canvasTheme.js';
 
 export type LayoutMove = {
   id: string;
@@ -43,7 +44,8 @@ function newShapeId(kind: string) {
 }
 
 function buildRecordFromCreate(c: LayoutCreate): CanvasRecord {
-  const { kind, x, y, width, height, label, fill } = c;
+  const { kind, x, y, width, height, label } = c;
+  const fill = normalizeCreateFill(kind, c.fill, { strictTheme: true });
 
   if (kind === 'circle') {
     const base = 160;

@@ -5,6 +5,7 @@ import type {
   AiLayoutRequest,
   AiLayoutResponse,
 } from '../schemas/aiLayoutSchemas.js';
+import type { ConversationMessage } from './conversationStore.js';
 
 export class OpenAiLayoutService {
   private readonly client: OpenAI;
@@ -15,7 +16,11 @@ export class OpenAiLayoutService {
     this.model = opts.model ?? process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   }
 
-  async layout(req: AiLayoutRequest): Promise<AiLayoutResponse> {
+  async layout(opts: {
+    req: AiLayoutRequest;
+    messages: ConversationMessage[];
+  }): Promise<{ result: AiLayoutResponse; assistantText: string }> {
+    const { req, messages } = opts;
     const completion = await this.client.chat.completions.create({
       model: this.model,
       messages: [
@@ -26,18 +31,7 @@ export class OpenAiLayoutService {
             canvasHeight: req.canvasHeight,
           }),
         },
-        {
-          role: 'user',
-          content: JSON.stringify(
-            {
-              instruction: req.instruction,
-              canvas: { width: req.canvasWidth, height: req.canvasHeight },
-              elements: req.elements,
-            },
-            null,
-            2,
-          ),
-        },
+        ...messages,
       ],
       response_format: {
         type: 'json_schema',
@@ -114,6 +108,6 @@ export class OpenAiLayoutService {
       throw new Error('OpenAI returned invalid JSON shape');
     }
 
-    return validated.data;
+    return { result: validated.data, assistantText: content };
   }
 }

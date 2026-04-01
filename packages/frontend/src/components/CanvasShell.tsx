@@ -34,6 +34,14 @@ export function CanvasShell() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiStatusText, setAiStatusText] = useState<string>('');
   const [yjsReady, setYjsReady] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(true);
+  type PromptMessage = {
+    id: string;
+    text: string;
+    status: 'pending' | 'done' | 'error';
+  };
+  const nextPromptIdRef = useRef(1);
+  const [promptMessages, setPromptMessages] = useState<PromptMessage[]>([]);
 
   const toolBtnClass = (id: ToolId) =>
     `${styles.toolBtn} ${activeTool === id ? styles.toolBtnActive : ''}`;
@@ -53,6 +61,79 @@ export function CanvasShell() {
     window.addEventListener('resize', computeSize);
     return () => window.removeEventListener('resize', computeSize);
   }, [computeSize]);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => computeSize());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [computeSize]);
+
+  const nudgeViewportToKeepObjectsVisible = useCallback(() => {
+    const c = fabricRef.current;
+    if (!c) return;
+    const objs = c.getObjects() as FabricObject[];
+    if (objs.length === 0) return;
+
+    const margin = 18;
+    const w = size.w;
+    const h = size.h;
+
+    const bounds = objs.reduce(
+      (acc, o) => {
+        const r = o.getBoundingRect();
+        const left = r.left;
+        const top = r.top;
+        const right = r.left + r.width;
+        const bottom = r.top + r.height;
+        return {
+          minX: Math.min(acc.minX, left),
+          minY: Math.min(acc.minY, top),
+          maxX: Math.max(acc.maxX, right),
+          maxY: Math.max(acc.maxY, bottom),
+        };
+      },
+      {
+        minX: Number.POSITIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+        maxX: Number.NEGATIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+      },
+    );
+
+    // Only pan (no zoom) to keep content within the viewport.
+    const vt = (c.viewportTransform ?? [1, 0, 0, 1, 0, 0]).slice() as number[];
+    const zoom = typeof c.getZoom === 'function' ? c.getZoom() : 1;
+    const viewMinX = (-vt[4]) / zoom;
+    const viewMinY = (-vt[5]) / zoom;
+    const viewMaxX = viewMinX + w / zoom;
+    const viewMaxY = viewMinY + h / zoom;
+
+    let dx = 0;
+    let dy = 0;
+
+    if (bounds.maxX > viewMaxX - margin) dx = bounds.maxX - (viewMaxX - margin);
+    if (bounds.minX < viewMinX + margin) dx = bounds.minX - (viewMinX + margin);
+    if (bounds.maxY > viewMaxY - margin) dy = bounds.maxY - (viewMaxY - margin);
+    if (bounds.minY < viewMinY + margin) dy = bounds.minY - (viewMinY + margin);
+
+    if (dx !== 0 || dy !== 0) {
+      vt[4] -= dx * zoom;
+      vt[5] -= dy * zoom;
+      c.setViewportTransform(vt as [number, number, number, number, number, number]);
+      c.requestRenderAll();
+    }
+  }, [size.h, size.w]);
+
+  useEffect(() => {
+    // After layout/size changes (e.g. chat toggle), keep shapes reachable.
+    const id = window.requestAnimationFrame(() => {
+      nudgeViewportToKeepObjectsVisible();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [chatCollapsed, nudgeViewportToKeepObjectsVisible, size.h, size.w]);
 
   const onReady = useCallback((c: FabricCanvasType) => {
     fabricRef.current = c;
@@ -188,6 +269,16 @@ export function CanvasShell() {
         return;
       }
 
+      const promptId = String(nextPromptIdRef.current++);
+      setPromptMessages((m): PromptMessage[] => {
+        const newMsg: PromptMessage = {
+          id: promptId,
+          text: instruction,
+          status: 'pending',
+        };
+        return [...m, newMsg].slice(-5);
+      });
+
       setAiLoading(true);
       setAiStatusText('Thinking…');
       try {
@@ -203,6 +294,7 @@ export function CanvasShell() {
         const result = await requestAiLayout({
           apiBaseUrl: 'http://localhost:4000',
           req: {
+            roomId: binding.getRoomId(),
             instruction,
             elements,
             canvasWidth: size.w,
@@ -221,8 +313,18 @@ export function CanvasShell() {
         } else {
           setAiStatusText('');
         }
+        setPromptMessages((m): PromptMessage[] =>
+          m.map((msg) =>
+            msg.id === promptId ? { ...msg, status: 'done' } : msg,
+          ),
+        );
       } catch (e) {
         setAiStatusText(e instanceof Error ? e.message : 'AI layout failed');
+        setPromptMessages((m): PromptMessage[] =>
+          m.map((msg) =>
+            msg.id === promptId ? { ...msg, status: 'error' } : msg,
+          ),
+        );
         throw e;
       } finally {
         setAiLoading(false);
@@ -393,6 +495,15 @@ export function CanvasShell() {
         </div>
         <div className={styles.topActions}>
           <button
+            className={styles.topBtn}
+            onClick={() => setChatCollapsed((v) => !v)}
+            type="button"
+            aria-label={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
+            title={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
+          >
+            {chatCollapsed ? 'Show chat' : 'Hide chat'}
+          </button>
+          <button
             className={`${styles.topBtn} ${styles.topBtnPrimary}`}
             onClick={actions.zoomReset}
           >
@@ -407,15 +518,9 @@ export function CanvasShell() {
         </div>
       </header>
 
-      <PromptBar
-        disabled={aiLoading || !yjsReady}
-        statusText={
-          !yjsReady ? 'Connecting…' : aiLoading ? 'Loading…' : aiStatusText
-        }
-        onSubmit={runAiLayout}
-      />
-
-      <div className={styles.workbench}>
+      <div
+        className={`${styles.workbench} ${chatCollapsed ? styles.workbenchChatCollapsed : ''}`}
+      >
         <aside className={styles.leftRail}>
           <div className={styles.railGroup}>
             <div className={styles.railLabel}>Tools</div>
@@ -548,6 +653,113 @@ export function CanvasShell() {
         </aside>
 
         <main className={styles.stage}>
+          <section className={styles.propsBar} aria-label="Properties">
+            {props ? (
+              <div className={styles.propsBarBody}>
+                <div className={styles.coordsRow}>
+                  <div className={styles.kvField}>
+                    <label className={styles.kvKey} htmlFor="prop-x">
+                      X
+                    </label>
+                    <input
+                      id="prop-x"
+                      className={styles.kvInput}
+                      type="number"
+                      value={props.left}
+                      onChange={(e) =>
+                        updateActiveObject({ left: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div className={styles.kvField}>
+                    <label className={styles.kvKey} htmlFor="prop-y">
+                      Y
+                    </label>
+                    <input
+                      id="prop-y"
+                      className={styles.kvInput}
+                      type="number"
+                      value={props.top}
+                      onChange={(e) =>
+                        updateActiveObject({ top: Number(e.target.value) })
+                      }
+                    />
+                  </div>
+                  <div className={styles.kvFieldReadonly}>
+                    <div className={styles.kvKey}>W</div>
+                    <div className={styles.kvReadonly}>{props.width}</div>
+                  </div>
+                  <div className={styles.kvFieldReadonly}>
+                    <div className={styles.kvKey}>H</div>
+                    <div className={styles.kvReadonly}>{props.height}</div>
+                  </div>
+
+                  <div className={styles.kvFieldFill}>
+                    <label className={styles.kvKey} htmlFor="prop-fill">
+                      Fill
+                    </label>
+                    <input
+                      id="prop-fill"
+                      className={styles.kvInputAuto}
+                      value={props.fill}
+                      onChange={(e) =>
+                        updateActiveObject({ fill: e.target.value })
+                      }
+                      placeholder="#6d28d9"
+                      style={{
+                        width: `${Math.max(
+                          9,
+                          Math.min(22, (props.fill || '#6d28d9').length + 2),
+                        )}ch`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {'text' in (activeObject ?? {}) ? (
+                  <>
+                    <div className={styles.propsFieldWide}>
+                      <label className={styles.label} htmlFor="prop-text">
+                        Text
+                      </label>
+                      <input
+                        id="prop-text"
+                        className={styles.input}
+                        value={props.text}
+                        onChange={(e) =>
+                          updateActiveObject({ text: e.target.value })
+                        }
+                        placeholder="Edit text…"
+                      />
+                    </div>
+                    {props.fontSize !== null ? (
+                      <div className={styles.propsField}>
+                        <label className={styles.label} htmlFor="prop-font">
+                          Font
+                        </label>
+                        <input
+                          id="prop-font"
+                          className={styles.input}
+                          type="number"
+                          value={props.fontSize}
+                          onChange={(e) =>
+                            updateActiveObject({
+                              fontSize: Number(e.target.value),
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <div className={styles.propsBarEmpty}>
+                Select a single object to edit its properties.
+              </div>
+            )}
+          </section>
+
           <div
             ref={wrapperRef}
             className={`${styles.canvasWrap} ${aiLoading ? styles.canvasWrapLoading : ''}`}
@@ -559,91 +771,48 @@ export function CanvasShell() {
               onReady={onReady}
             />
           </div>
+
+          {chatCollapsed ? (
+            <button
+              className={styles.chatFloatingBtn}
+              onClick={() => setChatCollapsed(false)}
+              type="button"
+              aria-label="Expand chat"
+              title="Expand chat"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M7 10h10M7 14h6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
         </main>
 
-        <aside className={styles.rightPanel}>
-          <div className={styles.panelHeader}>Properties</div>
-          {props ? (
-            <div className={styles.panelBody}>
-              <div className={styles.fieldRow}>
-                <label className={styles.label}>X</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  value={props.left}
-                  onChange={(e) =>
-                    updateActiveObject({ left: Number(e.target.value) })
-                  }
-                />
-              </div>
-              <div className={styles.fieldRow}>
-                <label className={styles.label}>Y</label>
-                <input
-                  className={styles.input}
-                  type="number"
-                  value={props.top}
-                  onChange={(e) =>
-                    updateActiveObject({ top: Number(e.target.value) })
-                  }
-                />
-              </div>
-
-              <div className={styles.fieldRow}>
-                <div className={styles.label}>W</div>
-                <div className={styles.readonly}>{props.width}</div>
-              </div>
-              <div className={styles.fieldRow}>
-                <div className={styles.label}>H</div>
-                <div className={styles.readonly}>{props.height}</div>
-              </div>
-
-              <div className={styles.fieldRow}>
-                <label className={styles.label}>Fill</label>
-                <input
-                  className={styles.input}
-                  value={props.fill}
-                  onChange={(e) => updateActiveObject({ fill: e.target.value })}
-                  placeholder="e.g. #6d28d9"
-                />
-              </div>
-
-              {'text' in (activeObject ?? {}) ? (
-                <>
-                  <div className={styles.fieldCol}>
-                    <label className={styles.label}>Text</label>
-                    <textarea
-                      className={styles.textarea}
-                      value={props.text}
-                      onChange={(e) =>
-                        updateActiveObject({ text: e.target.value })
-                      }
-                      rows={4}
-                    />
-                  </div>
-                  {props.fontSize !== null ? (
-                    <div className={styles.fieldRow}>
-                      <label className={styles.label}>Font</label>
-                      <input
-                        className={styles.input}
-                        type="number"
-                        value={props.fontSize}
-                        onChange={(e) =>
-                          updateActiveObject({
-                            fontSize: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-          ) : (
-            <div className={styles.panelEmpty}>
-              Select a single object to edit its properties.
-            </div>
-          )}
-        </aside>
+        {!chatCollapsed ? (
+          <aside className={styles.rightChat} aria-label="Chat">
+            <PromptBar
+              disabled={aiLoading || !yjsReady}
+              statusText={
+                !yjsReady ? 'Connecting…' : aiLoading ? 'Loading…' : aiStatusText
+              }
+              onSubmit={runAiLayout}
+              variant="chat"
+              historyMessages={promptMessages}
+            />
+          </aside>
+        ) : null}
       </div>
     </div>
   );

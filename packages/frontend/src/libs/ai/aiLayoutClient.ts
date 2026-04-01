@@ -16,6 +16,7 @@ export type AiLayoutElement = {
 };
 
 export type AiLayoutRequest = {
+  roomId: string;
   elements: AiLayoutElement[];
   instruction: string;
   canvasWidth: number;

@@ -12,6 +12,7 @@ export function buildAiLayoutSystemPrompt(opts: {
     'Use `elements` to reposition or resize existing objects: each item must use an `id` that exists in the input `elements` array.',
     'Use `creates` when the user asks to add, draw, or build new shapes (e.g. "add a circle", "create a rectangle").',
     'For new shapes, pick sensible x,y,width,height within the canvas. Use kind: rect | circle | text | line | arrow.',
+    'For new shapes, choose a fill color that fits the current canvas theme; avoid defaulting to pure black unless the user explicitly asks for it.',
     'If the canvas is empty and the user asks for a shape, put that shape in `creates` (not `elements`).',
     'If the user only wants rearrangement, return updates in `elements` and leave `creates` empty.',
     'If nothing applies, return empty `elements`, empty `creates`, and explain in `reasoning`.',

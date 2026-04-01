@@ -15,6 +15,7 @@ export const canvasElementSchema = z.object({
 
 export const aiLayoutRequestSchema = z
   .object({
+    roomId: z.string().min(1).max(300),
     elements: z.array(canvasElementSchema).max(100),
     instruction: z.string().min(1).max(10_000),
     canvasWidth: z.number().positive().max(20_000),
