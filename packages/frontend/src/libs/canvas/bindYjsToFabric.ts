@@ -14,6 +14,7 @@ export type YjsFabricBinding = {
   getRecordsById: () => Map<string, CanvasObjectRecord>;
   isSynced: () => boolean;
   getRoomId: () => string;
+  getDoc: () => Y.Doc;
 };
 
 export function bindYjsToFabricCanvas(opts: {
@@ -170,6 +171,7 @@ export function bindYjsToFabricCanvas(opts: {
     },
     isSynced: () => synced,
     getRoomId: () => room,
+    getDoc: () => ydoc,
   };
 
   return binding;

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import styles from './DesignPage.module.css';
 
 type CreateTab =
@@ -8,6 +9,7 @@ type CreateTab =
   ;
 
 export function DesignPage() {
+  const navigate = useNavigate();
   const createTabs = useMemo<CreateTab[]>(
     () => ['UI Design', 'Slides', 'Social'],
     [],
@@ -26,6 +28,9 @@ export function DesignPage() {
     }),
     [],
   );
+
+  const createDocId = () =>
+    `template-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   return (
     <div className={styles.page}>
@@ -72,7 +77,16 @@ export function DesignPage() {
             <div className={styles.creatorBottomRow}>
               <div className={styles.bottomRowSpacer} />
 
-              <button type="button" className={styles.primaryBtn}>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={() => {
+                  const docId = createDocId();
+                  navigate(`/design/editor?doc=${encodeURIComponent(docId)}`, {
+                    state: { prompt, docId },
+                  });
+                }}
+              >
                 Create
               </button>
             </div>
