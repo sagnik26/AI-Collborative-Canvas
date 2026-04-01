@@ -6,6 +6,7 @@ import {
   createLabeledCircle,
   createLabeledRect,
   createLine,
+  createTable,
   createText,
 } from './fabricFactories';
 
@@ -43,12 +44,14 @@ export function getKind(obj: FabricObject): CanvasObjectKind | null {
   if (isTextboxLike(obj)) return 'text';
   if (isGroupLike(obj)) {
     const id = getObjectId(obj);
+    if (id?.startsWith('table_')) return 'table';
     if (id?.startsWith('arrow_')) return 'arrow';
     if (id?.startsWith('rect_')) return 'rect';
     if (id?.startsWith('circle_')) return 'circle';
     return 'rect';
   }
   const id = getObjectId(obj);
+  if (id?.startsWith('table_')) return 'table';
   if (id?.startsWith('arrow_')) return 'arrow';
   if (id?.startsWith('line_')) return 'line';
   if (id?.startsWith('text_')) return 'text';
@@ -98,6 +101,35 @@ export function serializeObject(obj: FabricObject): CanvasObjectRecord | null {
       rec.line = { x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 };
     }
     if (typeof l.stroke === 'string') rec.fill = l.stroke;
+    return rec;
+  }
+
+  if (kind === 'table' && isGroupLike(obj)) {
+    const g = obj as Group;
+    const meta = (g as unknown as { get?: (k: string) => unknown }).get?.('table');
+    const rows =
+      typeof (meta as { rows?: unknown } | null)?.rows === 'number'
+        ? (meta as { rows: number }).rows
+        : 3;
+    const cols =
+      typeof (meta as { cols?: unknown } | null)?.cols === 'number'
+        ? (meta as { cols: number }).cols
+        : 3;
+
+    // Prefer background rect fill for tables.
+    const bg = g.getObjects()[0] as unknown as { fill?: unknown };
+    if (typeof bg?.fill === 'string') rec.fill = bg.fill;
+
+    const cells: string[] = Array.from({ length: rows * cols }, () => '');
+    g.getObjects().forEach((o) => {
+      if (!isTextboxLike(o as unknown as FabricObject)) return;
+      const t = o as unknown as { text?: unknown; get?: (k: string) => unknown };
+      const idx = t.get ? t.get('cellIndex') : null;
+      if (typeof idx === 'number' && idx >= 0 && idx < cells.length) {
+        cells[idx] = typeof t.text === 'string' ? t.text : '';
+      }
+    });
+    rec.table = { rows, cols, cells };
     return rec;
   }
 
@@ -156,6 +188,29 @@ export function applyRecordToObject(
       });
     }
     if (typeof rec.fill === 'string') obj.set('stroke', rec.fill);
+  } else if (rec.kind === 'table' && isGroupLike(obj)) {
+    const g = obj as Group;
+    const rows = rec.table?.rows ?? 3;
+    const cols = rec.table?.cols ?? 3;
+    const cells = rec.table?.cells ?? [];
+    const max = rows * cols;
+
+    // Update background fill if present.
+    const bg = g.getObjects()[0] as unknown as { set?: (k: string, v: unknown) => void };
+    if (bg?.set && typeof rec.fill === 'string') bg.set('fill', rec.fill);
+
+    g.getObjects().forEach((o) => {
+      if (!isTextboxLike(o as unknown as FabricObject)) return;
+      const t = o as unknown as {
+        set?: (k: string, v: unknown) => void;
+        get?: (k: string) => unknown;
+      };
+      const idx = t.get ? t.get('cellIndex') : null;
+      if (!t.set) return;
+      if (typeof idx === 'number' && idx >= 0 && idx < max) {
+        t.set('text', typeof cells[idx] === 'string' ? cells[idx] : '');
+      }
+    });
   } else if (isGroupLike(obj)) {
     const g = obj as Group;
     const shape = g.getObjects()[0] as unknown as {
@@ -191,6 +246,12 @@ export function ensureObjectForRecord(
   if (rec.kind === 'rect') obj = createLabeledRect(c);
   else if (rec.kind === 'circle') obj = createLabeledCircle(c);
   else if (rec.kind === 'arrow') obj = createArrow(c);
+  else if (rec.kind === 'table')
+    obj = createTable(c, {
+      rows: rec.table?.rows,
+      cols: rec.table?.cols,
+      cells: rec.table?.cells,
+    });
   else if (rec.kind === 'line') obj = createLine(c);
   else obj = createText(c);
 

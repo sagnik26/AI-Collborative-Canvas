@@ -145,3 +145,93 @@ export function createArrow(c: FabricCanvasType) {
   setObjectCenter(c, group);
   return group;
 }
+
+export function createTable(
+  c: FabricCanvasType,
+  opts?: { rows?: number; cols?: number; cells?: string[] },
+) {
+  const rows = Math.max(1, Math.min(20, opts?.rows ?? 3));
+  const cols = Math.max(1, Math.min(20, opts?.cols ?? 3));
+  const cells = opts?.cells ?? [];
+
+  const cellW = 140;
+  const cellH = 44;
+  const tableW = cols * cellW;
+  const tableH = rows * cellH;
+
+  const bg = new Rect({
+    width: tableW,
+    height: tableH,
+    fill: 'rgba(255,255,255,0.02)',
+    rx: 10,
+    ry: 10,
+    stroke: 'rgba(255,255,255,0.22)',
+    strokeWidth: 1,
+    originX: 'center',
+    originY: 'center',
+  });
+
+  const children: FabricObject[] = [bg];
+
+  // Grid lines (within the background rect).
+  const x0 = -tableW / 2;
+  const y0 = -tableH / 2;
+  for (let cIdx = 1; cIdx < cols; cIdx++) {
+    const x = x0 + cIdx * cellW;
+    const v = new Line([x, y0, x, y0 + tableH], {
+      stroke: 'rgba(255,255,255,0.14)',
+      strokeWidth: 1,
+      selectable: false,
+      evented: false,
+      originX: 'center',
+      originY: 'center',
+    });
+    children.push(v);
+  }
+  for (let rIdx = 1; rIdx < rows; rIdx++) {
+    const y = y0 + rIdx * cellH;
+    const h = new Line([x0, y, x0 + tableW, y], {
+      stroke: 'rgba(255,255,255,0.14)',
+      strokeWidth: 1,
+      selectable: false,
+      evented: false,
+      originX: 'center',
+      originY: 'center',
+    });
+    children.push(h);
+  }
+
+  // Cell text (editable). We store `cellIndex` so serialization can be stable.
+  for (let rIdx = 0; rIdx < rows; rIdx++) {
+    for (let cIdx = 0; cIdx < cols; cIdx++) {
+      const idx = rIdx * cols + cIdx;
+      const tx = x0 + cIdx * cellW + cellW / 2;
+      const ty = y0 + rIdx * cellH + cellH / 2;
+
+      const t = new Textbox(cells[idx] ?? '', {
+        width: cellW - 14,
+        fontSize: 14,
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+        fill: '#f3f4f6',
+        textAlign: 'center',
+        editable: true,
+        originX: 'center',
+        originY: 'center',
+        left: tx,
+        top: ty,
+      });
+      t.set('cellIndex', idx);
+      children.push(t);
+    }
+  }
+
+  const group = new Group(children, {
+    subTargetCheck: true,
+    objectCaching: false,
+  });
+  group.set('id', randomId('table'));
+  group.set('table', { rows, cols });
+  group.setControlsVisibility({ mtr: true });
+  setObjectCenter(c, group);
+  return group;
+}

@@ -15,6 +15,7 @@ import {
   createLabeledCircle,
   createLabeledRect,
   createLine,
+  createTable,
   createText,
 } from '../libs/canvas/fabricFactories';
 
@@ -390,6 +391,14 @@ export function CanvasShell() {
         setActive(a);
         c.requestRenderAll();
       },
+      addTable: () => {
+        const c = fabricRef.current;
+        if (!c) return;
+        const t = createTable(c, { rows: 3, cols: 3 });
+        c.add(t);
+        setActive(t);
+        c.requestRenderAll();
+      },
       clear: () => {
         const c = fabricRef.current;
         if (!c) return;
@@ -646,6 +655,37 @@ export function CanvasShell() {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+
+            <button
+              className={toolBtnClass('table')}
+              onClick={() => {
+                setActiveTool('table');
+                actions.addTable();
+              }}
+              title="Table"
+              aria-label="Table"
+              type="button"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect
+                  x="5"
+                  y="6"
+                  width="14"
+                  height="12"
+                  rx="2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M5 10h14M5 14h14M10 6v12M14 6v12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
                 />
               </svg>
             </button>

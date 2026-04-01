@@ -86,6 +86,7 @@ export function buildAiLayoutElementsFromCanvas(
     seen.add(id);
     const obj = findObjectById(canvas, id);
     const kind = rec.kind;
+    if (kind === 'table') return;
     const left =
       obj && typeof obj.left === 'number' ? obj.left : rec.left;
     const top = obj && typeof obj.top === 'number' ? obj.top : rec.top;
@@ -128,7 +129,7 @@ export function buildAiLayoutElementsFromCanvas(
     if (!id || seen.has(id)) continue;
 
     const kind = getKind(obj);
-    if (!kind) continue;
+    if (!kind || kind === 'table') continue;
 
     const left = typeof obj.left === 'number' ? obj.left : 0;
     const top = typeof obj.top === 'number' ? obj.top : 0;
