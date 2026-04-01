@@ -107,8 +107,8 @@ export function CanvasShell() {
     // Only pan (no zoom) to keep content within the viewport.
     const vt = (c.viewportTransform ?? [1, 0, 0, 1, 0, 0]).slice() as number[];
     const zoom = typeof c.getZoom === 'function' ? c.getZoom() : 1;
-    const viewMinX = (-vt[4]) / zoom;
-    const viewMinY = (-vt[5]) / zoom;
+    const viewMinX = -vt[4] / zoom;
+    const viewMinY = -vt[5] / zoom;
     const viewMaxX = viewMinX + w / zoom;
     const viewMaxY = viewMinY + h / zoom;
 
@@ -123,7 +123,9 @@ export function CanvasShell() {
     if (dx !== 0 || dy !== 0) {
       vt[4] -= dx * zoom;
       vt[5] -= dy * zoom;
-      c.setViewportTransform(vt as [number, number, number, number, number, number]);
+      c.setViewportTransform(
+        vt as [number, number, number, number, number, number],
+      );
       c.requestRenderAll();
     }
   }, [size.h, size.w]);
@@ -430,7 +432,7 @@ export function CanvasShell() {
     [setActive],
   );
 
-  const props = useMemo(() => {
+  useMemo(() => {
     if (!activeObject) return null;
     const left = typeof activeObject.left === 'number' ? activeObject.left : 0;
     const top = typeof activeObject.top === 'number' ? activeObject.top : 0;
@@ -466,36 +468,6 @@ export function CanvasShell() {
     };
   }, [activeObject]);
 
-  const updateActiveObject = useCallback(
-    (
-      patch: Partial<{
-        left: number;
-        top: number;
-        fill: string;
-        text: string;
-        fontSize: number;
-      }>,
-    ) => {
-      const c = fabricRef.current;
-      const obj = activeObject;
-      if (!c || !obj) return;
-
-      if (typeof patch.left === 'number') obj.set('left', patch.left);
-      if (typeof patch.top === 'number') obj.set('top', patch.top);
-      if (typeof patch.fill === 'string') obj.set('fill', patch.fill);
-      if (typeof patch.text === 'string' && 'text' in obj) {
-        obj.set('text', patch.text);
-      }
-      if (typeof patch.fontSize === 'number' && 'fontSize' in obj) {
-        obj.set('fontSize', patch.fontSize);
-      }
-      obj.setCoords();
-      c.requestRenderAll();
-      setActiveObject(obj);
-    },
-    [activeObject],
-  );
-
   return (
     <div className={styles.editor}>
       <header className={styles.topbar}>
@@ -503,15 +475,17 @@ export function CanvasShell() {
           <div className={styles.brandTitle}>AI Collaborative Canvas</div>
         </div>
         <div className={styles.topActions}>
-          <button
-            className={styles.topBtn}
-            onClick={() => setChatCollapsed((v) => !v)}
-            type="button"
-            aria-label={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
-            title={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
-          >
-            {chatCollapsed ? 'Show chat' : 'Hide chat'}
-          </button>
+          {!chatCollapsed ? (
+            <button
+              className={`${styles.topBtn} ${styles.topBtnPrimary}`}
+              onClick={() => setChatCollapsed(true)}
+              type="button"
+              aria-label="Collapse chat"
+              title="Collapse chat"
+            >
+              Hide chat
+            </button>
+          ) : null}
           <button
             className={`${styles.topBtn} ${styles.topBtnPrimary}`}
             onClick={actions.zoomReset}
@@ -530,9 +504,8 @@ export function CanvasShell() {
       <div
         className={`${styles.workbench} ${chatCollapsed ? styles.workbenchChatCollapsed : ''}`}
       >
-        <aside className={styles.leftRail}>
-          <div className={styles.railGroup}>
-            <div className={styles.railLabel}>Tools</div>
+        <main className={styles.stage}>
+          <section className={styles.toolsTop} aria-label="Tools">
             <button
               className={toolBtnClass('select')}
               onClick={() => {
@@ -689,115 +662,6 @@ export function CanvasShell() {
                 />
               </svg>
             </button>
-          </div>
-        </aside>
-
-        <main className={styles.stage}>
-          <section className={styles.propsBar} aria-label="Properties">
-            {props ? (
-              <div className={styles.propsBarBody}>
-                <div className={styles.coordsRow}>
-                  <div className={styles.kvField}>
-                    <label className={styles.kvKey} htmlFor="prop-x">
-                      X
-                    </label>
-                    <input
-                      id="prop-x"
-                      className={styles.kvInput}
-                      type="number"
-                      value={props.left}
-                      onChange={(e) =>
-                        updateActiveObject({ left: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div className={styles.kvField}>
-                    <label className={styles.kvKey} htmlFor="prop-y">
-                      Y
-                    </label>
-                    <input
-                      id="prop-y"
-                      className={styles.kvInput}
-                      type="number"
-                      value={props.top}
-                      onChange={(e) =>
-                        updateActiveObject({ top: Number(e.target.value) })
-                      }
-                    />
-                  </div>
-                  <div className={styles.kvFieldReadonly}>
-                    <div className={styles.kvKey}>W</div>
-                    <div className={styles.kvReadonly}>{props.width}</div>
-                  </div>
-                  <div className={styles.kvFieldReadonly}>
-                    <div className={styles.kvKey}>H</div>
-                    <div className={styles.kvReadonly}>{props.height}</div>
-                  </div>
-
-                  <div className={styles.kvFieldFill}>
-                    <label className={styles.kvKey} htmlFor="prop-fill">
-                      Fill
-                    </label>
-                    <input
-                      id="prop-fill"
-                      className={styles.kvInputAuto}
-                      value={props.fill}
-                      onChange={(e) =>
-                        updateActiveObject({ fill: e.target.value })
-                      }
-                      placeholder="#6d28d9"
-                      style={{
-                        width: `${Math.max(
-                          9,
-                          Math.min(22, (props.fill || '#6d28d9').length + 2),
-                        )}ch`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {'text' in (activeObject ?? {}) ? (
-                  <>
-                    <div className={styles.propsFieldWide}>
-                      <label className={styles.label} htmlFor="prop-text">
-                        Text
-                      </label>
-                      <input
-                        id="prop-text"
-                        className={styles.input}
-                        value={props.text}
-                        onChange={(e) =>
-                          updateActiveObject({ text: e.target.value })
-                        }
-                        placeholder="Edit text…"
-                      />
-                    </div>
-                    {props.fontSize !== null ? (
-                      <div className={styles.propsField}>
-                        <label className={styles.label} htmlFor="prop-font">
-                          Font
-                        </label>
-                        <input
-                          id="prop-font"
-                          className={styles.input}
-                          type="number"
-                          value={props.fontSize}
-                          onChange={(e) =>
-                            updateActiveObject({
-                              fontSize: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-            ) : (
-              <div className={styles.propsBarEmpty}>
-                Select a single object to edit its properties.
-              </div>
-            )}
           </section>
 
           <div
