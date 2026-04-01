@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import styles from './TemplateEditorShell.module.css';
-import type { TemplatePatch } from '../types/template';
+import type { TemplateFields, TemplateId, TemplatePatch, TemplateTheme } from '../types/template';
 import {
   createDefaultTemplateFields,
   createDefaultTemplateMeta,
@@ -10,20 +10,9 @@ import {
   readTemplateMetaFromMap,
   validateTemplatePatch,
 } from '../libs/template/contracts.ts';
-import { LANDING_TEMPLATE_V1 } from '../libs/template/templatePackV1.ts';
 import { renderTemplateWithDiagnostics } from '../libs/template/renderTemplate.ts';
 import { streamTemplateCompose } from '../libs/template/composeTemplateClient.ts';
-
-type PreviewData = {
-  title: string;
-  subtitle: string;
-  challenge: string[];
-  service: string[];
-  metrics: string[];
-  summary: string;
-  cta: string;
-  brand: string;
-};
+import { DEFAULT_TEMPLATE_CANDIDATES, getTemplatePack } from '../libs/template/templatePacks.ts';
 
 type StreamStage = {
   id: string;
@@ -40,36 +29,14 @@ const STAGES = [
   { id: 'error', label: 'error' },
 ] as const;
 
+function hasText(value: string) {
+  return value.trim().length > 0;
+}
+
 function cloneYMap<T>(ymap: Y.Map<T>) {
   const out = new Map<string, T>();
   ymap.forEach((v, k) => out.set(k, v));
   return out;
-}
-
-function createStreamingSeed(prompt: string): PreviewData {
-  return {
-    brand: 'Generating...',
-    title: prompt.trim().length > 0 ? prompt : 'Generating headline...',
-    subtitle: 'Generating subtitle...',
-    challenge: ['Generating...', 'Generating...', 'Generating...'],
-    service: ['Generating...', 'Generating...', 'Generating...'],
-    metrics: ['...', '...', '...'],
-    summary: 'Waiting for streamed content patches...',
-    cta: 'Generating...',
-  };
-}
-
-function toPreviewData(fields: ReturnType<typeof createDefaultTemplateFields>): PreviewData {
-  return {
-    brand: fields.socialProofTitle,
-    title: fields.heroHeadline,
-    subtitle: fields.heroSubheadline,
-    challenge: fields.steps.map((step) => step.description),
-    service: fields.logos.map((logo) => `Logo: ${logo}`),
-    metrics: [fields.mathTitle, fields.mathFormula, fields.heroBadge],
-    summary: fields.mathFootnote,
-    cta: fields.finalCtaLabel,
-  };
 }
 
 function readStages(map: Y.Map<unknown>): StreamStage[] {
@@ -80,7 +47,51 @@ function readStages(map: Y.Map<unknown>): StreamStage[] {
   }));
 }
 
-export function TemplateEditorShell(props: { initialPrompt?: string; docId?: string }) {
+function pageClassForTheme(theme: TemplateTheme): string | undefined {
+  switch (theme) {
+    case 'landing-dark':
+      return styles.pageThemeLanding;
+    case 'pitch-dark':
+      return styles.pageThemePitchDark;
+    case 'pitch-light':
+      return styles.pageThemePitchLight;
+    case 'pitch-zen':
+      return styles.pageThemePitchZen;
+    case 'pitch-neon':
+      return styles.pageThemePitchNeon;
+    default:
+      return styles.pageThemeLanding;
+  }
+}
+
+/** Preview article structure varies by pack so layouts read differently from each other. */
+function layoutClassForTemplateId(templateId: string): string {
+  switch (templateId) {
+    case 'pitch.v1':
+      return styles.layoutPitchNarrative;
+    case 'pitch.v2':
+      return styles.layoutPitchMetrics;
+    case 'pitch.v3':
+      return styles.layoutPitchZen;
+    case 'pitch.v4':
+      return styles.layoutPitchNeon;
+    case 'landing.v1':
+    default:
+      return styles.layoutLanding;
+  }
+}
+
+export type TemplateEditorShellProps = {
+  initialPrompt?: string;
+  docId?: string;
+  /** Compose allowlist; defaults to `DEFAULT_TEMPLATE_CANDIDATES` (Phase 4). */
+  templateCandidates?: TemplateId[];
+};
+
+export function TemplateEditorShell(props: TemplateEditorShellProps) {
+  const templateCandidatesRef = useRef<TemplateId[]>(DEFAULT_TEMPLATE_CANDIDATES);
+  templateCandidatesRef.current = props.templateCandidates ?? DEFAULT_TEMPLATE_CANDIDATES;
+
   const ydocRef = useRef<Y.Doc | null>(null);
   const metaMapRef = useRef<Y.Map<unknown> | null>(null);
   const fieldsMapRef = useRef<Y.Map<unknown> | null>(null);
@@ -89,11 +100,14 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [, setStatusText] = useState('Ready');
   const [templateId, setTemplateId] = useState('landing.v1');
+  const [templateTheme, setTemplateTheme] = useState<TemplateTheme>(() =>
+    createDefaultTemplateMeta().theme,
+  );
   const [templateStatus, setTemplateStatus] = useState('idle');
   const [patchCount, setPatchCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [sharedPrompt, setSharedPrompt] = useState(props.initialPrompt ?? '');
-  const [data, setData] = useState<PreviewData>(() => createStreamingSeed(props.initialPrompt ?? ''));
+  const [fields, setFields] = useState<TemplateFields>(() => createDefaultTemplateFields());
   const [stages, setStages] = useState<StreamStage[]>(() =>
     STAGES.map((s) => ({ id: s.id, label: s.label, done: false })),
   );
@@ -101,6 +115,7 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
   const [, setOverflowWarnings] = useState<string[]>([]);
   const [pageScale, setPageScale] = useState(1);
   const displayPrompt = sharedPrompt.trim().length > 0 ? sharedPrompt : 'default prompt';
+  const isLoading = templateStatus === 'streaming';
 
   const applyValidatedPatch = (opts: {
     patch: TemplatePatch;
@@ -184,13 +199,14 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
       STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
     });
 
+    const templateCandidates = templateCandidatesRef.current;
+
     void streamTemplateCompose({
       apiBaseUrl: 'http://localhost:4000',
       signal: abortController.signal,
       req: {
         prompt: promptValue,
-        templateCandidates: ['landing.v1'],
-        themeHint: 'landing-dark',
+        templateCandidates,
       },
       onEvent: (event) => {
         const currentRunId = metaMapRef.current?.get('runId');
@@ -290,13 +306,14 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
       const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
       const normalizedFields = readTemplateFieldsFromMap(cloneYMap(fieldsMap));
       const diagnostics = renderTemplateWithDiagnostics(
-        LANDING_TEMPLATE_V1,
+        getTemplatePack(normalizedMeta.templateId),
         normalizedFields,
       ).diagnostics;
       setSharedPrompt(promptValue);
-      setData(toPreviewData(normalizedFields));
+      setFields(normalizedFields);
       setStages(readStages(streamMap));
       setTemplateId(normalizedMeta.templateId);
+      setTemplateTheme(normalizedMeta.theme);
       setTemplateStatus(normalizedMeta.status);
       setPatchCount(
         typeof metaMap.get('patchCount') === 'number'
@@ -431,54 +448,118 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
                     transform: `scale(${pageScale})`,
                   }}
                 >
-                  <article className={styles.page}>
+                  <article
+                    className={[
+                      styles.page,
+                      pageClassForTheme(templateTheme),
+                      layoutClassForTemplateId(templateId),
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     <header className={styles.pageHeader}>
-                      <div className={styles.brand}>{data.brand}</div>
-                      <div className={styles.docMeta}>Concept 1</div>
+                      <div className={styles.brand}>
+                        {hasText(fields.heroBadge) ? fields.heroBadge : isLoading ? 'Loading...' : ''}
+                      </div>
+                      <div className={styles.docMeta}>{templateStatus}</div>
                     </header>
 
-                    <h1 className={styles.heroTitle}>{data.title}</h1>
-                    <p className={styles.heroSubtitle}>{data.subtitle}</p>
+                    <h1 className={styles.heroTitle}>
+                      {hasText(fields.heroHeadline)
+                        ? fields.heroHeadline
+                        : isLoading
+                          ? 'Generating headline...'
+                          : ''}
+                    </h1>
+                    <p className={styles.heroSubtitle}>
+                      {hasText(fields.heroSubheadline)
+                        ? fields.heroSubheadline
+                        : isLoading
+                          ? 'Generating subheadline...'
+                          : ''}
+                    </p>
 
                     <section className={styles.twoCol}>
                       <div className={styles.panel}>
-                        <h2>The Challenge</h2>
-                        <ul>
-                          {data.challenge.map((item, idx) => (
-                            <li key={`challenge-${idx}-${item}`}>{item}</li>
-                          ))}
-                        </ul>
+                        <h2>Steps</h2>
+                        {fields.steps.length > 0 ? (
+                          <ul>
+                            {fields.steps.map((step, idx) => (
+                              <li key={`step-${idx}-${step.title}`}>
+                                <strong>{step.title}: </strong>
+                                {step.description}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className={styles.loadingHint}>
+                            {isLoading ? 'Generating steps...' : ''}
+                          </div>
+                        )}
                       </div>
                       <div className={styles.panel}>
-                        <h2>Service Solution</h2>
-                        <ul>
-                          {data.service.map((item, idx) => (
-                            <li key={`service-${idx}-${item}`}>{item}</li>
-                          ))}
-                        </ul>
+                        <h2>{hasText(fields.socialProofTitle) ? fields.socialProofTitle : 'Social proof'}</h2>
+                        {fields.logos.length > 0 ? (
+                          <ul>
+                            {fields.logos.map((logo, idx) => (
+                              <li key={`logo-${idx}-${logo}`}>{logo}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className={styles.loadingHint}>
+                            {isLoading ? 'Generating logos...' : ''}
+                          </div>
+                        )}
                       </div>
                     </section>
 
                     <section className={styles.diagram}>
-                      <div className={styles.diagramBox}>Architecture Diagram Placeholder</div>
+                      <div className={styles.diagramBox}>
+                        {hasText(fields.mathTitle)
+                          ? fields.mathTitle
+                          : isLoading
+                            ? 'Generating callout...'
+                            : ''}
+                      </div>
                     </section>
 
                     <section className={styles.metricsRow}>
-                      {data.metrics.map((metric, idx) => (
-                        <div className={styles.metric} key={`metric-${idx}-${metric}`}>
-                          {metric}
-                        </div>
-                      ))}
+                      <div className={styles.metric}>
+                        {hasText(fields.mathFormula) ? fields.mathFormula : isLoading ? '...' : ''}
+                      </div>
+                      <div className={styles.metric}>
+                        {hasText(fields.heroPrimaryCta) ? fields.heroPrimaryCta : isLoading ? '...' : ''}
+                      </div>
+                      <div className={styles.metric}>
+                        {hasText(fields.heroSecondaryCta) ? fields.heroSecondaryCta : isLoading ? '...' : ''}
+                      </div>
+                      <div className={styles.metric}>
+                        {hasText(fields.finalCtaLabel) ? fields.finalCtaLabel : isLoading ? '...' : ''}
+                      </div>
                     </section>
 
-                    <section className={styles.summary}>{data.summary}</section>
+                    <section className={styles.summary}>
+                      {hasText(fields.mathFootnote) ? fields.mathFootnote : isLoading ? 'Generating summary...' : ''}
+                    </section>
 
                     <footer className={styles.footer}>
                       <div className={styles.footerTitle}>
-                        Ready to unlock your retail media data potential?
+                        {hasText(fields.finalCtaHeadline)
+                          ? fields.finalCtaHeadline
+                          : isLoading
+                            ? 'Generating final CTA...'
+                            : ''}
                       </div>
-                      <button type="button" className={styles.primaryCta}>
-                        {data.cta}
+                      <button
+                        type="button"
+                        className={styles.primaryCta}
+                        disabled={!hasText(fields.finalCtaLabel)}
+                      >
+                        {hasText(fields.finalCtaLabel)
+                          ? fields.finalCtaLabel
+                          : isLoading
+                            ? 'Loading...'
+                            : ''}
                       </button>
                     </footer>
                   </article>
@@ -491,6 +572,10 @@ export function TemplateEditorShell(props: { initialPrompt?: string; docId?: str
           <div className={styles.kv}>
             <span>Template</span>
             <strong>{templateId}</strong>
+          </div>
+          <div className={styles.kv}>
+            <span>Theme</span>
+            <strong>{templateTheme}</strong>
           </div>
           <div className={styles.kv}>
             <span>Pages</span>

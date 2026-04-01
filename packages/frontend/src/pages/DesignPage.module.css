@@ -164,6 +164,23 @@
 
 .promptArea {
   padding: 0 2px;
+  display: grid;
+  gap: 8px;
+}
+
+/* Chip row above the prompt (same pill style as .chip; not the centered .examples .chips block). */
+.promptChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.promptChips li {
+  display: flex;
 }
 
 .textarea {

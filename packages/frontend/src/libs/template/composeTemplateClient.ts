@@ -1,31 +1,44 @@
-import type {
-  TemplateComposeEvent,
-  TemplateFields,
-  TemplateComposeRequest,
+import {
+  TEMPLATE_THEME_BY_PACK,
+  type TemplateComposeEvent,
+  type TemplateComposeRequest,
+  type TemplateFields,
+  type TemplateId,
+  type TemplateTheme,
 } from '../../types/template';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function parseEvent(input: unknown): TemplateComposeEvent {
+function parseEvent(
+  input: unknown,
+  allowedTemplateIds: readonly TemplateId[],
+): TemplateComposeEvent {
   if (!isRecord(input) || typeof input.type !== 'string' || typeof input.opId !== 'string') {
     throw new Error('Invalid compose stream event');
   }
 
+  const allowed = new Set(allowedTemplateIds);
+
   if (input.type === 'template_selected') {
+    const tid = input.templateId;
+    const th = input.theme;
     if (
-      input.templateId !== 'landing.v1' ||
-      input.theme !== 'landing-dark' ||
-      input.status !== 'streaming'
+      typeof tid !== 'string' ||
+      typeof th !== 'string' ||
+      input.status !== 'streaming' ||
+      !Object.hasOwn(TEMPLATE_THEME_BY_PACK, tid) ||
+      TEMPLATE_THEME_BY_PACK[tid as TemplateId] !== th ||
+      !allowed.has(tid as TemplateId)
     ) {
       throw new Error('Invalid template_selected event');
     }
     return {
       type: 'template_selected',
       opId: input.opId,
-      templateId: 'landing.v1',
-      theme: 'landing-dark',
+      templateId: tid as TemplateId,
+      theme: th as TemplateTheme,
       status: 'streaming',
     };
   }
@@ -98,14 +111,14 @@ export async function streamTemplateCompose(opts: {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      const parsed = parseEvent(JSON.parse(trimmed) as unknown);
+      const parsed = parseEvent(JSON.parse(trimmed) as unknown, opts.req.templateCandidates);
       opts.onEvent(parsed);
     }
   }
 
   const finalChunk = buffered.trim();
   if (finalChunk.length > 0) {
-    const parsed = parseEvent(JSON.parse(finalChunk) as unknown);
+    const parsed = parseEvent(JSON.parse(finalChunk) as unknown, opts.req.templateCandidates);
     opts.onEvent(parsed);
   }
 }

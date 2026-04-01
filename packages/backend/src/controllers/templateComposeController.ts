@@ -25,6 +25,13 @@ function writeNdjson(res: Response, payload: unknown) {
   res.write(`${JSON.stringify(payload)}\n`);
 }
 
+function flushIfAvailable(res: Response) {
+  const maybeFlush = (res as Response & { flush?: () => void }).flush;
+  if (typeof maybeFlush === 'function') {
+    maybeFlush.call(res);
+  }
+}
+
 export async function templateComposeController(req: Request, res: Response) {
   const parsed = templateComposeRequestSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -38,12 +45,23 @@ export async function templateComposeController(req: Request, res: Response) {
   res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
 
   try {
     const service = new OpenAiTemplateComposeService({ apiKey: getOpenAiApiKey(req) });
-    const events = await service.compose(parsed.data);
-    for (const event of events) {
+    const abortController = new AbortController();
+    req.on('aborted', () => abortController.abort());
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        abortController.abort();
+      }
+    });
+    for await (const event of service.composeStream(parsed.data, abortController.signal)) {
       writeNdjson(res, event);
+      flushIfAvailable(res);
     }
     res.end();
   } catch (error) {

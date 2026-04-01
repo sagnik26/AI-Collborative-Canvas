@@ -8,6 +8,21 @@ export type TemplateSlotType =
 
 export type TemplateOverflow = 'wrap' | 'ellipsis' | 'clip';
 
+export const TEMPLATE_THEME_BY_PACK = {
+  'landing.v1': 'landing-dark',
+  'pitch.v1': 'pitch-dark',
+  'pitch.v2': 'pitch-light',
+  'pitch.v3': 'pitch-zen',
+  'pitch.v4': 'pitch-neon',
+} as const;
+
+export type TemplateId = keyof typeof TEMPLATE_THEME_BY_PACK;
+
+export type TemplateTheme = (typeof TEMPLATE_THEME_BY_PACK)[TemplateId];
+
+/**
+ * Shared field model for all packs (Option A): same keys everywhere; packs differ by `TemplateSchema` slots.
+ */
 export type TemplateSlot = {
   id: string;
   type: TemplateSlotType;
@@ -22,7 +37,7 @@ export type TemplateSlot = {
 
 export type TemplateSchema = {
   schemaVersion: '1';
-  templateId: 'landing.v1';
+  templateId: TemplateId;
   page: { width: number; height: number };
   slots: TemplateSlot[];
 };
@@ -51,8 +66,8 @@ export type TemplateFields = {
 export type TemplateStatus = 'idle' | 'streaming' | 'complete' | 'error';
 
 export type TemplateMeta = {
-  templateId: TemplateSchema['templateId'];
-  theme: 'landing-dark';
+  templateId: TemplateId;
+  theme: TemplateTheme;
   status: TemplateStatus;
   version: TemplateSchema['schemaVersion'];
 };
