@@ -13,80 +13,13 @@ import {
 import { renderTemplateWithDiagnostics } from '../libs/template/renderTemplate.ts';
 import { streamTemplateCompose } from '../libs/template/composeTemplateClient.ts';
 import { DEFAULT_TEMPLATE_CANDIDATES, getTemplatePack } from '../libs/template/templatePacks.ts';
+import { STAGES, readStages } from '../libs/template/templateComposeStages.ts';
+import { cloneYMap, hasText } from '../libs/template/yjsMapUtils.ts';
+import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
+import { A4_BASE_HEIGHT, A4_BASE_WIDTH } from '../constants/templateEditor';
+import { layoutClassForTemplateId, pageClassForTheme } from '../libs/template/templateEditorClasses.ts';
 
-type StreamStage = {
-  id: string;
-  label: string;
-  done: boolean;
-};
-
-const A4_BASE_WIDTH = 700;
-const A4_BASE_HEIGHT = 990;
-const STAGES = [
-  { id: 'template_selected', label: 'template_selected' },
-  { id: 'field_patch', label: 'field_patch' },
-  { id: 'complete', label: 'complete' },
-  { id: 'error', label: 'error' },
-] as const;
-
-function hasText(value: string) {
-  return value.trim().length > 0;
-}
-
-function cloneYMap<T>(ymap: Y.Map<T>) {
-  const out = new Map<string, T>();
-  ymap.forEach((v, k) => out.set(k, v));
-  return out;
-}
-
-function readStages(map: Y.Map<unknown>): StreamStage[] {
-  return STAGES.map((s) => ({
-    id: s.id,
-    label: s.label,
-    done: map.get(`done:${s.id}`) === true,
-  }));
-}
-
-function pageClassForTheme(theme: TemplateTheme): string | undefined {
-  switch (theme) {
-    case 'landing-dark':
-      return styles.pageThemeLanding;
-    case 'pitch-dark':
-      return styles.pageThemePitchDark;
-    case 'pitch-light':
-      return styles.pageThemePitchLight;
-    case 'pitch-zen':
-      return styles.pageThemePitchZen;
-    case 'pitch-neon':
-      return styles.pageThemePitchNeon;
-    default:
-      return styles.pageThemeLanding;
-  }
-}
-
-/** Preview article structure varies by pack so layouts read differently from each other. */
-function layoutClassForTemplateId(templateId: string): string {
-  switch (templateId) {
-    case 'pitch.v1':
-      return styles.layoutPitchNarrative;
-    case 'pitch.v2':
-      return styles.layoutPitchMetrics;
-    case 'pitch.v3':
-      return styles.layoutPitchZen;
-    case 'pitch.v4':
-      return styles.layoutPitchNeon;
-    case 'landing.v1':
-    default:
-      return styles.layoutLanding;
-  }
-}
-
-export type TemplateEditorShellProps = {
-  initialPrompt?: string;
-  docId?: string;
-  /** Compose allowlist; defaults to `DEFAULT_TEMPLATE_CANDIDATES` (Phase 4). */
-  templateCandidates?: TemplateId[];
-};
+// Constants and pure helpers live in `src/constants/**` and `src/libs/**`.
 
 export function TemplateEditorShell(props: TemplateEditorShellProps) {
   const templateCandidatesRef = useRef<TemplateId[]>(DEFAULT_TEMPLATE_CANDIDATES);

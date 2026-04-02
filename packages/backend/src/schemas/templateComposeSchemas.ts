@@ -5,9 +5,8 @@ import {
   OPENAI_TEMPLATE_ID_ENUM,
   OPENAI_TEMPLATE_THEME_ENUM,
   TEMPLATE_THEME_BY_PACK,
-  type TemplatePackId,
-  type TemplatePackTheme,
 } from '../constants/templatePackRegistry.js';
+import type { TemplatePackId, TemplatePackTheme } from '../types/templatePackRegistry.js';
 
 /**
  * Phase 2: `templateId` / theme literals come from `templatePackRegistry` (single source of truth).
@@ -162,11 +161,3 @@ export const templateComposeEventSchema = z.discriminatedUnion('type', [
   completeEventSchema,
   errorEventSchema,
 ]);
-
-export type TemplateComposeRequest = z.infer<
-  typeof templateComposeRequestSchema
->;
-export type TemplateComposeModelResponse = z.infer<
-  typeof templateComposeModelResponseSchema
->;
-export type TemplateComposeEvent = z.infer<typeof templateComposeEventSchema>;

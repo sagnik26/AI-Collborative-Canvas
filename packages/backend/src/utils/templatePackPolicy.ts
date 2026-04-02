@@ -1,21 +1,13 @@
-import { TEMPLATE_THEME_BY_PACK, type TemplatePackId } from '../constants/templatePackRegistry.js';
-import type { TemplateComposeModelResponse } from '../schemas/templateComposeSchemas.js';
-
-/** Semantic groups that must be satisfied before emitting `complete` (per-pack policy). */
-export type FieldGroup = 'hero' | 'social' | 'steps' | 'math' | 'final';
-
-export type SanitizedFullFields = TemplateComposeModelResponse['fields'];
+import { TEMPLATE_THEME_BY_PACK } from '../constants/templatePackRegistry.js';
+import type { TemplatePackId } from '../types/templatePackRegistry.js';
+import type {
+  FieldGroup,
+  SanitizedFullFields,
+  TemplatePackFieldPolicy,
+} from '../types/templatePackPolicy.js';
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
-}
-
-export interface TemplatePackFieldPolicy {
-  readonly fieldGroupEmitOrder: readonly FieldGroup[];
-  missingFieldGroups(acc: Record<string, unknown>): FieldGroup[];
-  chunkForGroup(safe: SanitizedFullFields, g: FieldGroup): Record<string, unknown>;
-  /** Ordered patch chunks for JSON fallback / progressive synthetic streaming. */
-  progressiveChunks(safe: SanitizedFullFields): Record<string, unknown>[];
 }
 
 /**
@@ -164,3 +156,4 @@ export function defaultTemplateIdForCandidates(candidates: readonly string[]): T
   }
   return 'landing.v1';
 }
+

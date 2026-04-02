@@ -1,11 +1,8 @@
 import OpenAI from 'openai';
 import { buildAiLayoutSystemPrompt } from '../prompts/aiLayoutPrompt.js';
 import { aiLayoutResponseSchema } from '../schemas/aiLayoutSchemas.js';
-import type {
-  AiLayoutRequest,
-  AiLayoutResponse,
-} from '../schemas/aiLayoutSchemas.js';
-import type { ConversationMessage } from './conversationStore.js';
+import type { AiLayoutRequest, AiLayoutResponse } from '../types/aiLayout.js';
+import type { ConversationMessage } from '../types/conversation.js';
 
 export class OpenAiLayoutService {
   private readonly client: OpenAI;

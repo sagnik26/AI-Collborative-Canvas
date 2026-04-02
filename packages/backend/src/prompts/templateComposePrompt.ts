@@ -1,8 +1,8 @@
 import {
-  type TemplatePackId,
   TEMPLATE_THEME_BY_PACK,
 } from '../constants/templatePackRegistry.js';
-import type { TemplateComposeRequest } from '../schemas/templateComposeSchemas.js';
+import type { TemplatePackId } from '../types/templatePackRegistry.js';
+import type { TemplateComposeRequest } from '../types/templateCompose.js';
 
 /** Per-candidate intent so the model can ground `template_selected` in the user message (Phase 4). */
 const PACK_INTENT_BY_ID: Record<TemplatePackId, string> = {

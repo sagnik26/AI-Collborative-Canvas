@@ -56,6 +56,3 @@ export const aiLayoutResponseSchema = z
     reasoning: z.string().default(''),
   })
   .strict();
-
-export type AiLayoutRequest = z.infer<typeof aiLayoutRequestSchema>;
-export type AiLayoutResponse = z.infer<typeof aiLayoutResponseSchema>;

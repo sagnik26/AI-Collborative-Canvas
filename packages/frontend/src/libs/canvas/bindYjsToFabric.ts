@@ -2,20 +2,13 @@ import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import type { CanvasObjectRecord } from '../../types/canvas';
+import type { YjsFabricBinding } from '../../types/yjs';
 import {
   applyRecordToObject,
   ensureObjectForRecord,
   getObjectId,
   serializeObject,
 } from './fabricRecords.ts';
-
-export type YjsFabricBinding = {
-  destroy: () => void;
-  getRecordsById: () => Map<string, CanvasObjectRecord>;
-  isSynced: () => boolean;
-  getRoomId: () => string;
-  getDoc: () => Y.Doc;
-};
 
 export function bindYjsToFabricCanvas(opts: {
   canvas: FabricCanvasType;

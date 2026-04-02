@@ -1,4 +1,4 @@
-import type { DocRepository } from './DocRepository.js';
+import type { DocRepository } from '../types/repositories.js';
 import type { DocName, DocUpdateBytes } from '../types/yjs.js';
 
 export class InMemoryDocRepository implements DocRepository {

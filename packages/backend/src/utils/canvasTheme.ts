@@ -1,4 +1,4 @@
-export type CanvasShapeKind = 'rect' | 'circle' | 'text' | 'line' | 'arrow';
+import type { CanvasShapeKind } from '../types/canvasTheme.js';
 
 function isDefaultBlack(fill: string) {
   const f = fill.trim().toLowerCase();

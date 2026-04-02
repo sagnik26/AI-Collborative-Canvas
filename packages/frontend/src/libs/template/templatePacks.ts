@@ -1,32 +1,13 @@
 import {
-  TEMPLATE_THEME_BY_PACK,
   type TemplateId,
   type TemplateSchema,
 } from '../../types/template';
+import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
 import {
-  LANDING_TEMPLATE_V1,
-  PITCH_TEMPLATE_METRICS_V1,
-  PITCH_TEMPLATE_NARRATIVE_V1,
-  PITCH_TEMPLATE_NEON_V1,
-  PITCH_TEMPLATE_ZEN_V1,
-} from './templatePackV1.ts';
-
-export const TEMPLATE_PACKS: Record<TemplateId, TemplateSchema> = {
-  'landing.v1': LANDING_TEMPLATE_V1,
-  'pitch.v1': PITCH_TEMPLATE_NARRATIVE_V1,
-  'pitch.v2': PITCH_TEMPLATE_METRICS_V1,
-  'pitch.v3': PITCH_TEMPLATE_ZEN_V1,
-  'pitch.v4': PITCH_TEMPLATE_NEON_V1,
-};
-
-/** All packs the compose endpoint may choose from (order is prompt order). */
-export const DEFAULT_TEMPLATE_CANDIDATES: TemplateId[] = [
-  'landing.v1',
-  'pitch.v1',
-  'pitch.v2',
-  'pitch.v3',
-  'pitch.v4',
-];
+  DEFAULT_TEMPLATE_CANDIDATES,
+  TEMPLATE_PACKS,
+} from '../../constants/templatePacks';
+import { LANDING_TEMPLATE_V1 } from '../../constants/templateSchemas';
 
 /**
  * Optional `?candidates=landing.v1,pitch.v2` for TemplateEditorPage (Phase 4 route-level allowlist).
@@ -52,3 +33,5 @@ export function getTemplatePack(id: string): TemplateSchema {
   }
   return LANDING_TEMPLATE_V1;
 }
+
+export { DEFAULT_TEMPLATE_CANDIDATES, TEMPLATE_PACKS };

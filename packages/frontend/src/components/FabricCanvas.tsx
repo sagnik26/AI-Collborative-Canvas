@@ -1,13 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { Canvas } from 'fabric';
 import type { Canvas as FabricCanvasType } from 'fabric';
-
-type FabricCanvasProps = {
-  className?: string;
-  width: number;
-  height: number;
-  onReady?: (canvas: FabricCanvasType) => void;
-};
+import type { FabricCanvasProps } from '../types/fabric';
 
 export function FabricCanvas({
   className,

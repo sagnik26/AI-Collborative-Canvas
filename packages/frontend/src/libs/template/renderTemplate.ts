@@ -5,9 +5,7 @@ import type {
   TemplateSchema,
   TemplateSlot,
 } from '../../types/template';
-
-const BASE_W = { text: 320, rect: 240, line: 280 };
-const BASE_H = { text: 40, rect: 150, line: 4 };
+import { TEMPLATE_RENDER_BASE_H, TEMPLATE_RENDER_BASE_W } from '../../constants/templateRender';
 
 function clamp(min: number, v: number, max: number) {
   return Math.max(min, Math.min(max, v));
@@ -16,19 +14,19 @@ function clamp(min: number, v: number, max: number) {
 function scaleForSlot(slot: TemplateSlot) {
   if (slot.type === 'text') {
     return {
-      scaleX: slot.w / BASE_W.text,
-      scaleY: slot.h / BASE_H.text,
+      scaleX: slot.w / TEMPLATE_RENDER_BASE_W.text,
+      scaleY: slot.h / TEMPLATE_RENDER_BASE_H.text,
     };
   }
   if (slot.type === 'connector') {
     return {
-      scaleX: slot.w / BASE_W.line,
-      scaleY: slot.h / BASE_H.line,
+      scaleX: slot.w / TEMPLATE_RENDER_BASE_W.line,
+      scaleY: slot.h / TEMPLATE_RENDER_BASE_H.line,
     };
   }
   return {
-    scaleX: slot.w / BASE_W.rect,
-    scaleY: slot.h / BASE_H.rect,
+    scaleX: slot.w / TEMPLATE_RENDER_BASE_W.rect,
+    scaleY: slot.h / TEMPLATE_RENDER_BASE_H.rect,
   };
 }
 

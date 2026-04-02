@@ -1,11 +1,11 @@
 import {
-  TEMPLATE_THEME_BY_PACK,
   type TemplateComposeEvent,
   type TemplateComposeRequest,
   type TemplateFields,
   type TemplateId,
   type TemplateTheme,
 } from '../../types/template';
+import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

@@ -4,22 +4,7 @@ import {
   errorEventSchema,
   templateComposeRequestSchema,
 } from '../schemas/templateComposeSchemas.js';
-
-function getBearerToken(req: Request) {
-  const header = req.header('authorization');
-  if (!header) return null;
-  const m = header.match(/^Bearer\s+(.+)\s*$/i);
-  return m?.[1] ? m[1].trim() : null;
-}
-
-function getOpenAiApiKey(req: Request) {
-  const fromHeader = getBearerToken(req);
-  if (fromHeader) return fromHeader;
-
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY not configured');
-  return key;
-}
+import { getOpenAiApiKey } from '../utils/openAiAuth.js';
 
 function writeNdjson(res: Response, payload: unknown) {
   res.write(`${JSON.stringify(payload)}\n`);

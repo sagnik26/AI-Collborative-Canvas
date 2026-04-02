@@ -1,15 +1,14 @@
 import {
-  TEMPLATE_THEME_BY_PACK,
   type TemplateFields,
   type TemplateId,
   type TemplateMeta,
   type TemplatePatch,
-  type TemplateSchema,
   type TemplateStepField,
   type TemplateTheme,
 } from '../../types/template';
-
-export const TEMPLATE_SCHEMA_VERSION: TemplateSchema['schemaVersion'] = '1';
+import type { TemplateStringFieldKey } from '../../types/templateFields';
+import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
+import { TEMPLATE_SCHEMA_VERSION } from '../../constants/templateSchema';
 
 export function createDefaultTemplateMeta(): TemplateMeta {
   const templateId: TemplateId = 'landing.v1';
@@ -134,19 +133,7 @@ export function readTemplateFieldsFromMap(
   map: Map<string, unknown>,
 ): TemplateFields {
   const defaults = createDefaultTemplateFields();
-  type StringFieldKey =
-    | 'heroBadge'
-    | 'heroHeadline'
-    | 'heroSubheadline'
-    | 'heroPrimaryCta'
-    | 'heroSecondaryCta'
-    | 'socialProofTitle'
-    | 'mathTitle'
-    | 'mathFormula'
-    | 'mathFootnote'
-    | 'finalCtaHeadline'
-    | 'finalCtaLabel';
-  const readString = (key: StringFieldKey) => {
+  const readString = (key: TemplateStringFieldKey) => {
     const v = map.get(String(key));
     return typeof v === 'string' ? v : defaults[key];
   };
