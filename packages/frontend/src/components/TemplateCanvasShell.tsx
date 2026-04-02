@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import { FabricCanvas } from './FabricCanvas';
 import styles from './TemplateEditorShell.module.css';
-import type { TemplateFields, TemplateId, TemplatePatch, TemplateTheme } from '../types/template';
+import type { TemplateFields, TemplateId, TemplatePatch } from '../types/template';
 import {
   createDefaultTemplateFields,
   createDefaultTemplateMeta,
@@ -14,13 +16,8 @@ import { renderTemplateWithDiagnostics } from '../libs/template/renderTemplate.t
 import { streamTemplateCompose } from '../libs/template/composeTemplateClient.ts';
 import { DEFAULT_TEMPLATE_CANDIDATES, getTemplatePack } from '../libs/template/templatePacks.ts';
 import { STAGES, readStages } from '../libs/template/templateComposeStages.ts';
-import { cloneYMap, hasText } from '../libs/template/yjsMapUtils.ts';
+import { cloneYMap } from '../libs/template/yjsMapUtils.ts';
 import { withTemplateFieldFallbacks } from '../libs/template/templateFieldFallbacks.ts';
-import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
-import { A4_BASE_HEIGHT, A4_BASE_WIDTH } from '../constants/templateEditor';
-import { layoutClassForTemplateId, pageClassForTheme } from '../libs/template/templateEditorClasses.ts';
-
-// Constants and pure helpers live in `src/constants/**` and `src/libs/**`.
 
 function createLoadingTemplateFields(): TemplateFields {
   return {
@@ -43,8 +40,34 @@ function createLoadingTemplateFields(): TemplateFields {
     finalCtaLabel: 'Loading...',
   };
 }
+import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
+import { bindFabricCanvasToYMap } from '../libs/canvas/bindYjsToFabric.ts';
+import { attachTemplateFabricViewport } from '../libs/canvas/templateFabricViewport.ts';
+import {
+  DEFAULT_TEMPLATE_ARTBOARD_COLORS,
+  fitTemplatePageInViewport,
+  isTemplateSlotFabricObject,
+  setupTemplateArtboard,
+} from '../libs/template/templateArtboard.ts';
+import {
+  applyTemplateFieldsToFabricObjects,
+  refitTemplateSceneAndRender,
+  removeTemplateSlotObjects,
+  renderTemplateSlotsToCanvas,
+} from '../libs/template/templateCanvasFabric.ts';
+import { getTemplateFabricViewLayout } from '../libs/template/templateFabricViewLayout.ts';
+import { TEMPLATE_FABRIC_OBJECTS_MAP } from '../constants/templateEditor.ts';
+import type { CanvasObjectRecord } from '../types/canvas';
 
-export function TemplateEditorShell(props: TemplateEditorShellProps) {
+export function TemplateCanvasShell(props: TemplateEditorShellProps) {
+  const filterIgnoredMissingFields = (id: TemplateId, slots: string[]) => {
+    if (id !== 'landing.v1') return slots;
+    const ignored = new Set(['slot:logo:4', 'slot:logo:5', 'slot:logo:6']);
+    return slots.filter((slotId) => !ignored.has(slotId));
+  };
+
+  const artboardColorsForTemplateId = (_templateId: TemplateId) => DEFAULT_TEMPLATE_ARTBOARD_COLORS;
+
   const templateCandidatesRef = useRef<TemplateId[]>(DEFAULT_TEMPLATE_CANDIDATES);
   templateCandidatesRef.current = props.templateCandidates ?? DEFAULT_TEMPLATE_CANDIDATES;
 
@@ -52,26 +75,39 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
   const metaMapRef = useRef<Y.Map<unknown> | null>(null);
   const fieldsMapRef = useRef<Y.Map<unknown> | null>(null);
   const streamMapRef = useRef<Y.Map<unknown> | null>(null);
+  const objectsMapRef = useRef<Y.Map<CanvasObjectRecord> | null>(null);
   const composeAbortRef = useRef<AbortController | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  const fabricRef = useRef<FabricCanvasType | null>(null);
+  const fabricBindingRef = useRef<ReturnType<typeof bindFabricCanvasToYMap> | null>(null);
+  const pageOffsetRef = useRef({ pageX: 0, pageY: 0 });
+  const lastRenderedTemplateIdRef = useRef<string>('');
+  const fabricDisposeRef = useRef<(() => void) | null>(null);
+  /** Skip resize refit when it matches the last layout from {@link handleFabricReady}. */
+  const fabricLayoutKeyRef = useRef<string>('');
+
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const [canvasSize, setCanvasSize] = useState({ w: 800, h: 560 });
+  const canvasSizeRef = useRef(canvasSize);
+  useLayoutEffect(() => {
+    canvasSizeRef.current = canvasSize;
+  }, [canvasSize]);
+
   const [, setStatusText] = useState('Ready');
-  const [templateId, setTemplateId] = useState('landing.v1');
-  const [templateTheme, setTemplateTheme] = useState<TemplateTheme>(() =>
-    createDefaultTemplateMeta().theme,
-  );
+  const [templateId, setTemplateId] = useState<TemplateId>('landing.v1');
+  const [templateTheme, setTemplateTheme] = useState(() => createDefaultTemplateMeta().theme);
   const [templateStatus, setTemplateStatus] = useState('idle');
   const [patchCount, setPatchCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [sharedPrompt, setSharedPrompt] = useState(props.initialPrompt ?? '');
-  const [fields, setFields] = useState<TemplateFields>(() => createDefaultTemplateFields());
   const [stages, setStages] = useState<StreamStage[]>(() =>
     STAGES.map((s) => ({ id: s.id, label: s.label, done: false })),
   );
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [, setOverflowWarnings] = useState<string[]>([]);
-  const [pageScale, setPageScale] = useState(1);
   const displayPrompt = sharedPrompt.trim().length > 0 ? sharedPrompt : 'default prompt';
-  const isLoading = templateStatus === 'streaming';
+  const stableDocKey =
+    props.docId && props.docId.trim().length > 0 ? props.docId.trim() : 'template-default';
 
   const applyValidatedPatch = (opts: {
     patch: TemplatePatch;
@@ -150,6 +186,12 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
       loadingFieldEntries.forEach(([k, v]) => fieldsMap.set(k, v));
       STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
     });
+    // Keep the stage blank while waiting for `template_selected`.
+    const canvas = fabricRef.current;
+    if (canvas) {
+      removeTemplateSlotObjects(canvas);
+      canvas.requestRenderAll();
+    }
 
     const templateCandidates = templateCandidatesRef.current;
 
@@ -237,7 +279,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
     startComposeStream();
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const safeDocId =
       props.docId && props.docId.trim().length > 0 ? props.docId.trim() : 'template-default';
     const roomName = `yjs?doc=${safeDocId}`;
@@ -248,9 +290,11 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
     const metaMap = ydoc.getMap<unknown>('templateMeta');
     const fieldsMap = ydoc.getMap<unknown>('templateFields');
     const streamMap = ydoc.getMap<unknown>('templateStream');
+    const objectsMap = ydoc.getMap<CanvasObjectRecord>(TEMPLATE_FABRIC_OBJECTS_MAP);
     metaMapRef.current = metaMap;
     fieldsMapRef.current = fieldsMap;
     streamMapRef.current = streamMap;
+    objectsMapRef.current = objectsMap;
 
     const syncLocalFromMaps = () => {
       const promptValue =
@@ -266,7 +310,6 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
         normalizedFields,
       ).diagnostics;
       setSharedPrompt(promptValue);
-      setFields(normalizedFields);
       setStages(readStages(streamMap));
       setTemplateId(normalizedMeta.templateId);
       setTemplateTheme(normalizedMeta.theme);
@@ -276,7 +319,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
           ? (metaMap.get('patchCount') as number)
           : 0,
       );
-      setMissingFields(diagnostics.missingFields);
+      setMissingFields(filterIgnoredMissingFields(normalizedMeta.templateId, diagnostics.missingFields));
       setOverflowWarnings(diagnostics.overflowWarnings);
       setStatusText(
         typeof metaMap.get('statusText') === 'string'
@@ -304,9 +347,77 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
       }
     });
 
-    const onMeta = () => syncLocalFromMaps();
-    const onFields = () => syncLocalFromMaps();
-    const onStream = () => syncLocalFromMaps();
+    const syncFabricLayoutForTemplateChange = (
+      normalizedMeta: ReturnType<typeof readTemplateMetaFromMap>,
+    ) => {
+      const canvas = fabricRef.current;
+      const fieldsMapCurrent = fieldsMapRef.current;
+      if (!canvas || !fieldsMapCurrent) return;
+      if (normalizedMeta.templateId === lastRenderedTemplateIdRef.current) return;
+      lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
+      const normalizedFields = withTemplateFieldFallbacks(
+        normalizedMeta.templateId,
+        readTemplateFieldsFromMap(cloneYMap(fieldsMapCurrent)),
+        { enabled: false },
+      );
+      const pack = getTemplatePack(normalizedMeta.templateId);
+      const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
+        artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+      });
+      pageOffsetRef.current = { pageX, pageY };
+      fabricBindingRef.current?.applyFromYjs({ animatePositions: false });
+      const viewLayout = getTemplateFabricViewLayout(pack);
+      fitTemplatePageInViewport(canvas, {
+        pageX,
+        pageY,
+        width: viewLayout.viewW,
+        height: viewLayout.viewH,
+      });
+    };
+
+    const syncFabricTextFromFields = () => {
+      const canvas = fabricRef.current;
+      const metaMapCurrent = metaMapRef.current;
+      const fieldsMapCurrent = fieldsMapRef.current;
+      if (!canvas || !metaMapCurrent || !fieldsMapCurrent) return;
+      const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMapCurrent));
+      const normalizedFields = withTemplateFieldFallbacks(
+        normalizedMeta.templateId,
+        readTemplateFieldsFromMap(cloneYMap(fieldsMapCurrent)),
+        { enabled: false },
+      );
+      const pack = getTemplatePack(normalizedMeta.templateId);
+      const hasRenderedTemplateSlots = canvas.getObjects().some((obj) => isTemplateSlotFabricObject(obj));
+      if (!hasRenderedTemplateSlots) {
+        const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
+          artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+        });
+        pageOffsetRef.current = { pageX, pageY };
+        fabricBindingRef.current?.applyFromYjs({ animatePositions: false });
+        const viewLayout = getTemplateFabricViewLayout(pack);
+        fitTemplatePageInViewport(canvas, {
+          pageX,
+          pageY,
+          width: viewLayout.viewW,
+          height: viewLayout.viewH,
+        });
+        return;
+      }
+      applyTemplateFieldsToFabricObjects(canvas, pack, normalizedFields);
+    };
+
+    const onMeta = () => {
+      syncLocalFromMaps();
+      const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+      syncFabricLayoutForTemplateChange(normalizedMeta);
+    };
+    const onFields = () => {
+      syncLocalFromMaps();
+      syncFabricTextFromFields();
+    };
+    const onStream = () => {
+      syncLocalFromMaps();
+    };
     metaMap.observe(onMeta as (evt: unknown) => void);
     fieldsMap.observe(onFields as (evt: unknown) => void);
     streamMap.observe(onStream as (evt: unknown) => void);
@@ -326,6 +437,10 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
 
     return () => {
       composeAbortRef.current?.abort();
+      fabricDisposeRef.current?.();
+      fabricDisposeRef.current = null;
+      fabricBindingRef.current = null;
+      fabricRef.current = null;
       metaMap.unobserve(onMeta as (evt: unknown) => void);
       fieldsMap.unobserve(onFields as (evt: unknown) => void);
       streamMap.unobserve(onStream as (evt: unknown) => void);
@@ -335,40 +450,162 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
       metaMapRef.current = null;
       fieldsMapRef.current = null;
       streamMapRef.current = null;
+      objectsMapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.docId]);
 
   useEffect(() => {
-    const el = viewportRef.current;
+    const el = canvasWrapRef.current;
     if (!el) return;
 
-    const H_PADDING = 56;
-    const V_PADDING = 56;
-    const FIT_SAFETY = 0.98;
-
-    const updatePageScale = () => {
-      const rect = el.getBoundingClientRect();
-      const availW = Math.max(0, rect.width - H_PADDING);
-      const availH = Math.max(0, rect.height - V_PADDING);
-      if (availW <= 0 || availH <= 0) return;
-
-      const scaleByWidth = availW / A4_BASE_WIDTH;
-      const scaleByHeight = availH / A4_BASE_HEIGHT;
-      const nextScale = Math.max(
-        0.25,
-        Math.min(scaleByWidth, scaleByHeight, 1) * FIT_SAFETY,
-      );
-      setPageScale(nextScale);
+    let raf = 0;
+    const measure = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect();
+        const w = Math.floor(rect.width);
+        const h = Math.floor(rect.height);
+        if (w < 16 || h < 16) return;
+        setCanvasSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      });
     };
 
-    updatePageScale();
-    const ro = new ResizeObserver(updatePageScale);
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    window.addEventListener('resize', updatePageScale);
+    window.addEventListener('resize', measure);
     return () => {
+      cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener('resize', updatePageScale);
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  useEffect(() => {
+    const key = `${canvasSize.w}x${canvasSize.h}`;
+    if (fabricLayoutKeyRef.current === key) return;
+
+    const t = window.setTimeout(() => {
+      const c = fabricRef.current;
+      const meta = metaMapRef.current;
+      const fieldsMap = fieldsMapRef.current;
+      const binding = fabricBindingRef.current;
+      if (!c || !meta || !fieldsMap || !binding) return;
+      if (canvasSize.w < 16 || canvasSize.h < 16) return;
+      if (fabricLayoutKeyRef.current === key) return;
+
+      const normalizedMeta = readTemplateMetaFromMap(cloneYMap(meta));
+      const fields = withTemplateFieldFallbacks(
+        normalizedMeta.templateId,
+        readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
+        { enabled: false },
+      );
+      const pack = getTemplatePack(normalizedMeta.templateId);
+      const { pageX, pageY } = refitTemplateSceneAndRender(c, pack, fields, {
+        artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+      });
+      pageOffsetRef.current = { pageX, pageY };
+      binding.applyFromYjs({ animatePositions: false });
+      const viewLayout = getTemplateFabricViewLayout(pack);
+      fitTemplatePageInViewport(c, {
+        pageX,
+        pageY,
+        width: viewLayout.viewW,
+        height: viewLayout.viewH,
+      });
+      fabricLayoutKeyRef.current = key;
+    }, 100);
+
+    return () => window.clearTimeout(t);
+  }, [canvasSize.w, canvasSize.h]);
+
+  const handleBeforeFabricDispose = useCallback(() => {
+    fabricDisposeRef.current?.();
+    fabricDisposeRef.current = null;
+    fabricBindingRef.current = null;
+    fabricRef.current = null;
+  }, []);
+
+  const handleFabricReady = useCallback((canvas: FabricCanvasType) => {
+    fabricRef.current = canvas;
+    const metaMap = metaMapRef.current;
+    const fieldsMap = fieldsMapRef.current;
+    const ymap = objectsMapRef.current;
+    if (!metaMap || !fieldsMap || !ymap) return;
+
+    const { w, h } = canvasSizeRef.current;
+    canvas.setDimensions({ width: w, height: h });
+    canvas.calcOffset();
+
+    const { pageX, pageY } = setupTemplateArtboard(
+      canvas,
+      artboardColorsForTemplateId(readTemplateMetaFromMap(cloneYMap(metaMap)).templateId),
+    );
+    pageOffsetRef.current = { pageX, pageY };
+
+    const binding = bindFabricCanvasToYMap({
+      canvas,
+      ymap,
+      shouldPreserveObject: (obj) => isTemplateSlotFabricObject(obj),
+    });
+    fabricBindingRef.current = binding;
+
+    const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+    const normalizedFields = withTemplateFieldFallbacks(
+      normalizedMeta.templateId,
+      readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
+      { enabled: false },
+    );
+    lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
+    renderTemplateSlotsToCanvas(
+      canvas,
+      getTemplatePack(normalizedMeta.templateId),
+      normalizedFields,
+      pageX,
+      pageY,
+    );
+    binding.applyFromYjs({ animatePositions: false });
+
+    const pack = getTemplatePack(normalizedMeta.templateId);
+    const viewLayout = getTemplateFabricViewLayout(pack);
+    fitTemplatePageInViewport(canvas, {
+      pageX,
+      pageY,
+      width: viewLayout.viewW,
+      height: viewLayout.viewH,
+    });
+    fabricLayoutKeyRef.current = `${canvas.width}x${canvas.height}`;
+
+    const detachViewport = attachTemplateFabricViewport(canvas);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      const single = canvas.getActiveObject() as unknown as { isEditing?: boolean };
+      if (single?.isEditing) return;
+      const active = canvas.getActiveObjects();
+      active.forEach((obj: FabricObject) => {
+        if (isTemplateSlotFabricObject(obj)) return;
+        canvas.remove(obj);
+      });
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+    };
+    window.addEventListener('keydown', onKeyDown);
+
+    fabricDisposeRef.current = () => {
+      window.removeEventListener('keydown', onKeyDown);
+      binding.destroy();
+      detachViewport();
     };
   }, []);
 
@@ -376,7 +613,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
     <div className={styles.editor}>
       <header className={styles.topbar}>
         <div className={styles.titleWrap}>
-          <div className={styles.title}>Template Editor (Single Page)</div>
+          <div className={styles.title}>Template editor (canvas)</div>
           <div className={styles.sub}>Prompt: {displayPrompt}</div>
         </div>
         <div className={styles.actions}>
@@ -386,142 +623,18 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
         </div>
       </header>
       <div className={styles.workbench}>
-        <main className={styles.stage}>
-          <div ref={viewportRef} className={styles.pageViewport}>
-            <div className={styles.pageViewportInner}>
-              <div
-                className={styles.pageScaleWrap}
-                style={{
-                  width: `${Math.ceil(A4_BASE_WIDTH * pageScale)}px`,
-                  height: `${Math.ceil(A4_BASE_HEIGHT * pageScale)}px`,
-                }}
-              >
-                <div
-                  className={styles.pageScaleInner}
-                  style={{
-                    width: `${A4_BASE_WIDTH}px`,
-                    height: `${A4_BASE_HEIGHT}px`,
-                    transform: `scale(${pageScale})`,
-                  }}
-                >
-                  <article
-                    className={[
-                      styles.page,
-                      pageClassForTheme(templateTheme),
-                      layoutClassForTemplateId(templateId),
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    <header className={styles.pageHeader}>
-                      <div className={styles.brand}>
-                        {hasText(fields.heroBadge) ? fields.heroBadge : isLoading ? 'Loading...' : ''}
-                      </div>
-                      <div className={styles.docMeta}>{templateStatus}</div>
-                    </header>
-
-                    <h1 className={styles.heroTitle}>
-                      {hasText(fields.heroHeadline)
-                        ? fields.heroHeadline
-                        : isLoading
-                          ? 'Generating headline...'
-                          : ''}
-                    </h1>
-                    <p className={styles.heroSubtitle}>
-                      {hasText(fields.heroSubheadline)
-                        ? fields.heroSubheadline
-                        : isLoading
-                          ? 'Generating subheadline...'
-                          : ''}
-                    </p>
-
-                    <section className={styles.twoCol}>
-                      <div className={styles.panel}>
-                        <h2>Steps</h2>
-                        {fields.steps.length > 0 ? (
-                          <ul>
-                            {fields.steps.map((step, idx) => (
-                              <li key={`step-${idx}-${step.title}`}>
-                                <strong>{step.title}: </strong>
-                                {step.description}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className={styles.loadingHint}>
-                            {isLoading ? 'Generating steps...' : ''}
-                          </div>
-                        )}
-                      </div>
-                      <div className={styles.panel}>
-                        <h2>{hasText(fields.socialProofTitle) ? fields.socialProofTitle : 'Social proof'}</h2>
-                        {fields.logos.length > 0 ? (
-                          <ul>
-                            {fields.logos.map((logo, idx) => (
-                              <li key={`logo-${idx}-${logo}`}>{logo}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className={styles.loadingHint}>
-                            {isLoading ? 'Generating logos...' : ''}
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className={styles.diagram}>
-                      <div className={styles.diagramBox}>
-                        {hasText(fields.mathTitle)
-                          ? fields.mathTitle
-                          : isLoading
-                            ? 'Generating callout...'
-                            : ''}
-                      </div>
-                    </section>
-
-                    <section className={styles.metricsRow}>
-                      <div className={styles.metric}>
-                        {hasText(fields.mathFormula) ? fields.mathFormula : isLoading ? '...' : ''}
-                      </div>
-                      <div className={styles.metric}>
-                        {hasText(fields.heroPrimaryCta) ? fields.heroPrimaryCta : isLoading ? '...' : ''}
-                      </div>
-                      <div className={styles.metric}>
-                        {hasText(fields.heroSecondaryCta) ? fields.heroSecondaryCta : isLoading ? '...' : ''}
-                      </div>
-                      <div className={styles.metric}>
-                        {hasText(fields.finalCtaLabel) ? fields.finalCtaLabel : isLoading ? '...' : ''}
-                      </div>
-                    </section>
-
-                    <section className={styles.summary}>
-                      {hasText(fields.mathFootnote) ? fields.mathFootnote : isLoading ? 'Generating summary...' : ''}
-                    </section>
-
-                    <footer className={styles.footer}>
-                      <div className={styles.footerTitle}>
-                        {hasText(fields.finalCtaHeadline)
-                          ? fields.finalCtaHeadline
-                          : isLoading
-                            ? 'Generating final CTA...'
-                            : ''}
-                      </div>
-                      <button
-                        type="button"
-                        className={styles.primaryCta}
-                        disabled={!hasText(fields.finalCtaLabel)}
-                      >
-                        {hasText(fields.finalCtaLabel)
-                          ? fields.finalCtaLabel
-                          : isLoading
-                            ? 'Loading...'
-                            : ''}
-                      </button>
-                    </footer>
-                  </article>
-                </div>
-              </div>
-            </div>
+        <main className={`${styles.stage} ${styles.stageFabric}`}>
+          <div ref={canvasWrapRef} className={styles.fabricCanvasHost}>
+            <FabricCanvas
+              key={stableDocKey}
+              className={styles.fabricCanvasElement}
+              backgroundColor={DEFAULT_TEMPLATE_ARTBOARD_COLORS.pasteboard}
+              skipOffscreen={false}
+              width={canvasSize.w}
+              height={canvasSize.h}
+              onReady={handleFabricReady}
+              onBeforeDispose={handleBeforeFabricDispose}
+            />
           </div>
         </main>
         <aside className={styles.sidebar}>
@@ -552,6 +665,10 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
           <div className={styles.kv}>
             <span>Sync</span>
             <strong>{isConnected ? 'connected' : 'connecting'}</strong>
+          </div>
+          <div className={styles.kv}>
+            <span>Canvas</span>
+            <strong>Wheel zoom · Alt+drag pan</strong>
           </div>
           <div className={styles.section}>
             <h3>Stream events</h3>

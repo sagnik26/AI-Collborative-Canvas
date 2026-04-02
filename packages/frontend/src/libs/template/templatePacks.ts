@@ -7,10 +7,10 @@ import {
   DEFAULT_TEMPLATE_CANDIDATES,
   TEMPLATE_PACKS,
 } from '../../constants/templatePacks';
-import { LANDING_TEMPLATE_V1 } from '../../constants/templateSchemas';
+import { LANDING_TEMPLATE_V1 } from './templateSchemas.ts';
 
 /**
- * Optional `?candidates=landing.v1,pitch.v2` for TemplateEditorPage (Phase 4 route-level allowlist).
+ * Optional `?candidates=landing.v1` for TemplateEditorPage (Phase 4 route-level allowlist).
  * Unknown ids are dropped; empty after filtering → undefined (use default list).
  */
 export function parseTemplateCandidatesQueryParam(

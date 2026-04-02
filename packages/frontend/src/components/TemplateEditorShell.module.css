@@ -1,5 +1,6 @@
 .editor {
   height: 100%;
+  min-width: 0;
   display: grid;
   grid-template-rows: 56px 1fr;
 }
@@ -8,6 +9,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
   padding: 0 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.04);
@@ -16,6 +19,8 @@
 .titleWrap {
   display: grid;
   gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 .title {
@@ -27,11 +32,15 @@
 .sub {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.64);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {
   display: flex;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .btn {
@@ -54,14 +63,46 @@
 }
 
 .workbench {
+  min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 .stage {
+  min-width: 0;
   min-height: 0;
   padding: 22px;
+}
+
+.stageFabric {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fabricCanvasHost {
+  flex: 1;
+  min-width: 0;
+  min-height: 480px;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* Match template pasteboard so letterboxing around the canvas is not a different “frame”. */
+  background: #09090b;
+  position: relative;
+}
+
+/* Fabric wraps the <canvas> in .canvas-container; keep it inside the flex column. */
+.fabricCanvasHost :global(.canvas-container) {
+  max-width: 100% !important;
+}
+
+.fabricCanvasElement {
+  display: block;
+  max-width: 100%;
 }
 
 .pageViewport {
@@ -178,219 +219,6 @@
 /* Preview layout: landing = two-column proof row */
 .layoutLanding .twoCol {
   grid-template-columns: 1fr 1fr;
-}
-
-/* pitch.v1 — proof column first, steps second */
-.layoutPitchNarrative .twoCol {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-}
-
-.layoutPitchNarrative .twoCol .panel:first-of-type {
-  order: 2;
-}
-
-.layoutPitchNarrative .twoCol .panel:last-of-type {
-  order: 1;
-}
-
-/* pitch.v2 — KPI band before narrative blocks (matches metrics-first pack) */
-.layoutPitchMetrics.page {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.layoutPitchMetrics.page > header {
-  order: 1;
-}
-
-.layoutPitchMetrics.page > .heroTitle {
-  order: 2;
-}
-
-.layoutPitchMetrics.page > .heroSubtitle {
-  order: 3;
-}
-
-.layoutPitchMetrics.page > .diagram {
-  order: 4;
-}
-
-.layoutPitchMetrics.page > .metricsRow {
-  order: 5;
-}
-
-.layoutPitchMetrics.page > .twoCol {
-  order: 6;
-}
-
-.layoutPitchMetrics.page > .summary {
-  order: 7;
-}
-
-.layoutPitchMetrics.page > .footer {
-  order: 8;
-}
-
-/* pitch.v3 — editorial single column */
-.layoutPitchZen .twoCol {
-  grid-template-columns: 1fr;
-}
-
-.layoutPitchZen.page {
-  max-width: 520px;
-  margin-left: auto;
-  margin-right: auto;
-  border-radius: 18px;
-}
-
-/* pitch.v4 — wide split columns */
-.layoutPitchNeon .twoCol {
-  grid-template-columns: 1fr 1fr;
-}
-
-.layoutPitchNeon.page {
-  border-left: 4px solid #e879f9;
-  padding-left: 22px;
-}
-
-.pageThemePitchDark {
-  background: linear-gradient(172deg, #020617 0%, #1e293b 36%, #f8fafc 36%);
-  color: #0f172a;
-  border-color: rgba(30, 58, 138, 0.55);
-  box-shadow:
-    rgba(15, 23, 42, 0.35) 0 24px 64px -32px,
-    rgba(56, 189, 248, 0.08) 0 0 0 1px inset;
-}
-
-.pageThemePitchDark .pageHeader,
-.pageThemePitchDark .heroSubtitle,
-.pageThemePitchDark .docMeta {
-  color: #cbd5e1;
-}
-
-.pageThemePitchDark .brand {
-  color: #38bdf8;
-}
-
-.pageThemePitchDark .heroTitle {
-  color: #f8fafc;
-}
-
-.pageThemePitchDark .panel {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: #cbd5e1;
-}
-
-.pageThemePitchLight {
-  background: linear-gradient(180deg, #fffbeb 0%, #fffbeb 11%, #fefefe 11%, #fafaf9 100%);
-  color: #1c1917;
-  border: 1px solid #fcd34d;
-  box-shadow:
-    rgba(180, 83, 9, 0.08) 0 0 0 1px inset,
-    rgba(28, 25, 23, 0.08) 0 20px 50px -28px;
-}
-
-.pageThemePitchLight .brand {
-  color: #b45309;
-}
-
-.pageThemePitchLight .heroTitle {
-  color: #1c1917;
-}
-
-.pageThemePitchLight .panel {
-  background: #fffefb;
-  border-color: #fde68a;
-}
-
-.pageThemePitchLight .diagramBox {
-  background: #fffbeb;
-  border-color: #fbbf24;
-  color: #92400e;
-}
-
-.pageThemePitchLight .metricsRow .metric {
-  background: #1c1917;
-  color: #fef3c7;
-}
-
-.pageThemePitchZen {
-  background: linear-gradient(180deg, #f5f0e6 0%, #faf8f3 45%, #ffffff 100%);
-  color: #44403c;
-  border: 1px solid #a8a29e;
-  box-shadow: rgba(68, 64, 60, 0.06) 0 20px 48px -28px;
-}
-
-.pageThemePitchZen .brand {
-  color: #78716c;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-size: 11px;
-}
-
-.pageThemePitchZen .heroTitle {
-  color: #1c1917;
-  font-family: ui-serif, Georgia, 'Times New Roman', serif;
-  font-weight: 600;
-  font-size: 28px;
-}
-
-.pageThemePitchZen .panel {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: #d6d3d1;
-  border-radius: 12px;
-}
-
-.pageThemePitchZen .diagramBox {
-  background: #f5f5f4;
-  border-color: #d6d3d1;
-  color: #57534e;
-}
-
-.pageThemePitchZen .summary {
-  background: #fafaf9;
-  border-color: #d6d3d1;
-  border-left-color: #78716c;
-  color: #44403c;
-}
-
-.pageThemePitchNeon {
-  background:
-    radial-gradient(100% 60% at 100% 0%, rgba(217, 70, 239, 0.22), transparent 50%),
-    radial-gradient(90% 70% at 0% 100%, rgba(56, 189, 248, 0.2), transparent 55%),
-    linear-gradient(165deg, #0c0a1a 0%, #0f172a 50%, #020617 100%);
-  color: #e2e8f0;
-  border: 1px solid rgba(56, 189, 248, 0.4);
-  box-shadow:
-    rgba(217, 70, 239, 0.15) 0 0 40px -12px,
-    rgba(56, 189, 248, 0.15) 0 0 0 1px inset,
-    rgba(0, 0, 0, 0.45) 0 28px 80px -38px;
-}
-
-.pageThemePitchNeon .pageHeader,
-.pageThemePitchNeon .heroSubtitle,
-.pageThemePitchNeon .docMeta {
-  color: #94a3b8;
-}
-
-.pageThemePitchNeon .brand {
-  color: #22d3ee;
-}
-
-.pageThemePitchNeon .heroTitle {
-  color: #f8fafc;
-}
-
-.pageThemePitchNeon .panel {
-  background: rgba(15, 23, 42, 0.55);
-  border-color: rgba(34, 211, 238, 0.25);
-  color: #e2e8f0;
-}
-
-.pageThemePitchNeon .panel h2 {
-  color: #f1f5f9;
 }
 
 .loadingWrap {

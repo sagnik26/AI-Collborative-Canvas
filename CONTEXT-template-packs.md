@@ -113,7 +113,7 @@ Today `missingFieldGroups`, `chunkForGroup`, `sanitizeFullFields`, and progressi
 
 ### Phase 4 — Prompts and client
 
-1. `**templateComposePrompt.ts`** — For each candidate id, add a short line of intent (e.g. when to prefer `landing.v1` vs `pitch.v1`) so selection is grounded.
+1. `**templateComposePrompt.ts`** — For each candidate id, add a short line of intent (e.g. when to prefer `landing.v1`) so selection is grounded.
 2. `**composeTemplateClient.ts**` — Remove assumptions of a single hardcoded `templateId`; send the same `templateCandidates` the UI uses.
 3. `**TemplateEditorShell.tsx**` — Pass `templateCandidates` from config, props, or route (start with a shared constant listing allowed packs for the session).
 

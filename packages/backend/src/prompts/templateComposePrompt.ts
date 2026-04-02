@@ -8,14 +8,6 @@ import type { TemplateComposeRequest } from '../types/templateCompose.js';
 const PACK_INTENT_BY_ID: Record<TemplatePackId, string> = {
   'landing.v1':
     'landing.v1 + landing-dark: full marketing landing (hero, proof, steps, math callout, final CTA). Prefer when the user wants a broad page, many sections, or “website/landing” style.',
-  'pitch.v1':
-    'pitch.v1 + pitch-dark: narrative pitch (proof left, story right). Prefer story-led decks, founder narrative, or “tell our story”.',
-  'pitch.v2':
-    'pitch.v2 + pitch-light: metrics-first, light hero band. Prefer KPIs, numbers, growth, ROI, or “show the metrics”.',
-  'pitch.v3':
-    'pitch.v3 + pitch-zen: centered column + side math rail. Prefer calm, minimal, editorial, or “clean zen” tone.',
-  'pitch.v4':
-    'pitch.v4 + pitch-neon: split hero vs proof stack, high-contrast. Prefer bold, product-launch, or “stand out / neon” energy.',
 };
 
 function isTemplatePackId(id: string): id is TemplatePackId {

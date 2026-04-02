@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom';
-import { TemplateEditorShell } from '../components/TemplateEditorShell';
+import { TemplateCanvasShell } from '../components/TemplateCanvasShell';
 import { parseTemplateCandidatesQueryParam } from '../libs/template/templatePacks.ts';
 
 export function TemplateEditorPage() {
@@ -8,9 +8,12 @@ export function TemplateEditorPage() {
   const params = new URLSearchParams(location.search);
   const docIdFromQuery = params.get('doc') ?? undefined;
   const docId = docIdFromQuery ?? state?.docId;
-  const templateCandidates = parseTemplateCandidatesQueryParam(params.get('candidates'));
+  const templateCandidates = parseTemplateCandidatesQueryParam(
+    params.get('candidates'),
+  );
+
   return (
-    <TemplateEditorShell
+    <TemplateCanvasShell
       initialPrompt={state?.prompt}
       docId={docId}
       templateCandidates={templateCandidates}

@@ -6,6 +6,17 @@ export type TemplateSlotType =
   | 'logo'
   | 'cta';
 
+export type TemplateSlotComponentKind =
+  | 'kpiCard'
+  | 'navItem'
+  | 'topTab'
+  | 'statChip'
+  | 'infoListItem'
+  | 'quoteCard'
+  | 'footerMeta'
+  | 'barChartPanel'
+  | 'sparkline';
+
 import { TEMPLATE_THEME_BY_PACK } from '../constants/templateRegistry';
 
 export type TemplateOverflow = 'wrap' | 'ellipsis' | 'clip';
@@ -20,6 +31,7 @@ export type TemplateTheme = (typeof TEMPLATE_THEME_BY_PACK)[TemplateId];
 export type TemplateSlot = {
   id: string;
   type: TemplateSlotType;
+  componentKind?: TemplateSlotComponentKind;
   x: number;
   y: number;
   w: number;

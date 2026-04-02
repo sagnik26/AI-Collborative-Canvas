@@ -5,7 +5,12 @@ import type {
   TemplateSchema,
   TemplateSlot,
 } from '../../types/template';
-import { TEMPLATE_RENDER_BASE_H, TEMPLATE_RENDER_BASE_W } from '../../constants/templateRender';
+import { TEMPLATE_RENDER_BASE_H, TEMPLATE_RENDER_BASE_W } from '../../constants/templateRender.ts';
+import {
+  canvasColorForTemplateSlot,
+  fabricColorForTemplateSlot,
+  typeTokenForSlot,
+} from '../../Design System/templateDesignTokens.ts';
 
 function clamp(min: number, v: number, max: number) {
   return Math.max(min, Math.min(max, v));
@@ -51,7 +56,41 @@ function fitText(slot: TemplateSlot, raw: string, diagnostics: TemplateRenderDia
   return out;
 }
 
-function textForSlot(slotId: string, fields: TemplateFields): string | null {
+function approxCharsPerLine(slot: TemplateSlot) {
+  const baseFont = slot.type === 'logo' ? 14 : typeTokenForSlot(slot.id).size;
+  const avgCharWidth = baseFont * 0.54;
+  const usableWidth = Math.max(24, slot.w - 12);
+  return Math.max(8, Math.floor(usableWidth / Math.max(6, avgCharWidth)));
+}
+
+/**
+ * Fits slot text for Fabric rendering (no diagnostics), including wrapped-line estimation.
+ */
+export function fitSlotTextForCanvas(slot: TemplateSlot, raw: string): string {
+  let out = raw;
+  if (typeof slot.maxChars === 'number' && out.length > slot.maxChars) {
+    if (slot.overflow === 'ellipsis' && slot.maxChars >= 1) {
+      out = `${out.slice(0, Math.max(0, slot.maxChars - 1))}…`;
+    } else {
+      out = out.slice(0, slot.maxChars);
+    }
+  }
+
+  if (typeof slot.maxLines === 'number' && slot.maxLines > 0) {
+    const lines = out.split('\n');
+    const maxByWrap = slot.maxLines * approxCharsPerLine(slot);
+    if (out.length > maxByWrap) {
+      const clipped = out.slice(0, Math.max(0, maxByWrap - 1));
+      out = slot.overflow === 'wrap' ? clipped : `${clipped}…`;
+    }
+    if (lines.length > slot.maxLines) {
+      out = lines.slice(0, slot.maxLines).join('\n');
+    }
+  }
+  return out;
+}
+
+export function textForSlot(slotId: string, fields: TemplateFields): string | null {
   if (slotId === 'slot:hero:badge') return fields.heroBadge;
   if (slotId === 'slot:hero:headline') return fields.heroHeadline;
   if (slotId === 'slot:hero:subheadline') return fields.heroSubheadline;
@@ -78,15 +117,44 @@ function textForSlot(slotId: string, fields: TemplateFields): string | null {
   return null;
 }
 
-function colorForSlot(slot: TemplateSlot) {
-  if (slot.type === 'connector') return 'rgba(148, 163, 184, 0.75)';
-  if (slot.id.includes(':cta:') || slot.id === 'slot:final:cta') return '#7c3aed';
-  if (slot.type === 'pill') return '#1d4ed8';
-  if (slot.type === 'logo') return 'rgba(255,255,255,0.05)';
-  if (slot.id === 'slot:hero:visual') return 'rgba(16, 185, 129, 0.18)';
-  if (slot.id === 'slot:math:box') return 'rgba(59, 130, 246, 0.16)';
-  if (slot.type === 'box') return 'rgba(255,255,255,0.04)';
-  return '#f3f4f6';
+function firstNonEmpty(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+  }
+  return '';
+}
+
+export function textForTemplateSlot(
+  templateId: TemplateSchema['templateId'],
+  slotId: string,
+  fields: TemplateFields,
+): string | null {
+  if (templateId === 'landing.v1') {
+    if (slotId === 'slot:logo:4') return firstNonEmpty(fields.logos[3], 'Documentation');
+    if (slotId === 'slot:logo:5') return firstNonEmpty(fields.logos[4], 'Privacy');
+    if (slotId === 'slot:logo:6') return firstNonEmpty(fields.logos[5], 'Security');
+  }
+  if (slotId === 'slot:hero:visual') {
+    return firstNonEmpty(fields.mathTitle, fields.socialProofTitle, fields.heroHeadline);
+  }
+  if (slotId === 'slot:math:box') {
+    return firstNonEmpty(fields.finalCtaHeadline, fields.heroSubheadline);
+  }
+  return textForSlot(slotId, fields);
+}
+
+export function colorForSlot(slot: TemplateSlot) {
+  return canvasColorForTemplateSlot(slot);
+}
+
+/**
+ * Fills/strokes for Fabric slots drawn on the light artboard (see {@link DEFAULT_TEMPLATE_ARTBOARD_COLORS.page}).
+ */
+export function fabricFillForSlot(
+  slot: TemplateSlot,
+  templateId?: TemplateSchema['templateId'],
+) {
+  return fabricColorForTemplateSlot(slot, templateId);
 }
 
 export function renderTemplateWithDiagnostics(
@@ -109,7 +177,7 @@ export function renderTemplateWithDiagnostics(
     const cy = slot.y + slot.h / 2;
     const clampedCx = clamp(slot.w / 2, cx, template.page.width - slot.w / 2);
     const clampedCy = clamp(slot.h / 2, cy, template.page.height - slot.h / 2);
-    const rawText = textForSlot(slot.id, fields);
+    const rawText = textForTemplateSlot(template.templateId, slot.id, fields);
     const text =
       typeof rawText === 'string' ? fitText(slot, rawText, diagnostics) : undefined;
 
@@ -133,6 +201,7 @@ export function renderTemplateWithDiagnostics(
     }
 
     if (slot.type === 'text') {
+      const token = typeTokenForSlot(slot.id);
       records.push({
         kind: 'text',
         left: clampedCx,
@@ -141,7 +210,7 @@ export function renderTemplateWithDiagnostics(
         scaleY: scale.scaleY,
         angle: 0,
         text,
-        fontSize: slot.id.includes('headline') ? 34 : 16,
+        fontSize: token.size,
         fill: '#f3f4f6',
       });
       continue;

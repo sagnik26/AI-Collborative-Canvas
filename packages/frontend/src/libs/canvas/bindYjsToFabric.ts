@@ -2,7 +2,7 @@ import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import type { CanvasObjectRecord } from '../../types/canvas';
-import type { YjsFabricBinding } from '../../types/yjs';
+import type { YjsFabricBinding, YjsFabricMapBinding } from '../../types/yjs';
 import {
   applyRecordToObject,
   ensureObjectForRecord,
@@ -10,24 +10,24 @@ import {
   serializeObject,
 } from './fabricRecords.ts';
 
-export function bindYjsToFabricCanvas(opts: {
+/**
+ * Bidirectional sync between a Fabric canvas and a Y.Map of {@link CanvasObjectRecord}s.
+ * Does not create a Y.Doc or websocket — use with your own collaborative document.
+ */
+export function bindFabricCanvasToYMap(opts: {
   canvas: FabricCanvasType;
-  wsBaseUrl: string;
-  room: string;
-  mapName?: string;
-}) {
-  const { canvas, wsBaseUrl, room, mapName = 'objects' } = opts;
-
-  const ydoc = new Y.Doc();
-  const provider = new WebsocketProvider(wsBaseUrl, room, ydoc, {
-    connect: true,
-  });
-  const ymap = ydoc.getMap<CanvasObjectRecord>(mapName);
+  ymap: Y.Map<CanvasObjectRecord>;
+  /**
+   * When the map has no entry for an object id, skip removal (e.g. template artboard + slot
+   * objects that are not yet stored in the map).
+   */
+  shouldPreserveObject?: (obj: FabricObject) => boolean;
+}): YjsFabricMapBinding {
+  const { canvas, ymap, shouldPreserveObject } = opts;
 
   let applyingRemote = false;
-  let synced = false;
 
-  const applyFromYjs = (opts?: { animatePositions?: boolean }) => {
+  const applyFromYjs = (applyOpts?: { animatePositions?: boolean }) => {
     applyingRemote = true;
     try {
       const liveIds = new Set<string>();
@@ -36,12 +36,15 @@ export function bindYjsToFabricCanvas(opts: {
       canvas.getObjects().forEach((o) => {
         const obj = o as FabricObject;
         const id = getObjectId(obj);
-        if (id && !liveIds.has(id)) canvas.remove(obj);
+        if (id && !liveIds.has(id)) {
+          if (shouldPreserveObject?.(obj)) return;
+          canvas.remove(obj);
+        }
       });
 
       ymap.forEach((rec, id) => {
         const obj = ensureObjectForRecord(canvas, id, rec);
-        if (opts?.animatePositions) {
+        if (applyOpts?.animatePositions) {
           const fromLeft = typeof obj.left === 'number' ? obj.left : 0;
           const fromTop = typeof obj.top === 'number' ? obj.top : 0;
           applyRecordToObject(obj, rec);
@@ -65,7 +68,6 @@ export function bindYjsToFabricCanvas(opts: {
           } else {
             obj.set({ left: toLeft, top: toTop });
           }
-          // Keep zIndex stable after reposition.
           canvas.requestRenderAll();
         } else {
           applyRecordToObject(obj, rec);
@@ -87,14 +89,9 @@ export function bindYjsToFabricCanvas(opts: {
       evt?.changes?.keys && typeof evt.changes.keys.size === 'number'
         ? evt.changes.keys.size
         : 0;
-    // Heuristic: bulk updates (2+ keys) are likely AI layout → animate.
     applyFromYjs({ animatePositions: keyCount >= 2 });
   };
   ymap.observe(onYjsChange as unknown as (evt: unknown) => void);
-  provider.on('sync', (isSynced: boolean) => {
-    synced = isSynced;
-    if (isSynced) applyFromYjs({ animatePositions: false });
-  });
 
   const upsertToYjs = (obj: FabricObject) => {
     if (applyingRemote) return;
@@ -144,7 +141,7 @@ export function bindYjsToFabricCanvas(opts: {
   canvas.on('object:scaling', onObjectScaling);
   canvas.on('text:changed', onTextChanged);
 
-  const binding: YjsFabricBinding = {
+  return {
     destroy: () => {
       canvas.off('object:added', onObjectAdded);
       canvas.off('object:removed', onObjectRemoved);
@@ -153,19 +150,49 @@ export function bindYjsToFabricCanvas(opts: {
       canvas.off('object:scaling', onObjectScaling);
       canvas.off('text:changed', onTextChanged);
 
-      ymap.unobserve(onYjsChange);
-      provider.destroy();
-      ydoc.destroy();
+      ymap.unobserve(onYjsChange as unknown as (evt: unknown) => void);
     },
     getRecordsById: () => {
       const m = new Map<string, CanvasObjectRecord>();
       ymap.forEach((rec, id) => m.set(id, rec));
       return m;
     },
+    applyFromYjs,
+  };
+}
+
+export function bindYjsToFabricCanvas(opts: {
+  canvas: FabricCanvasType;
+  wsBaseUrl: string;
+  room: string;
+  mapName?: string;
+}): YjsFabricBinding {
+  const { canvas, wsBaseUrl, room, mapName = 'objects' } = opts;
+
+  const ydoc = new Y.Doc();
+  const provider = new WebsocketProvider(wsBaseUrl, room, ydoc, {
+    connect: true,
+  });
+  const ymap = ydoc.getMap<CanvasObjectRecord>(mapName);
+
+  let synced = false;
+
+  const mapBinding = bindFabricCanvasToYMap({ canvas, ymap });
+
+  provider.on('sync', (isSynced: boolean) => {
+    synced = isSynced;
+    if (isSynced) mapBinding.applyFromYjs({ animatePositions: false });
+  });
+
+  return {
+    destroy: () => {
+      mapBinding.destroy();
+      provider.destroy();
+      ydoc.destroy();
+    },
+    getRecordsById: mapBinding.getRecordsById,
     isSynced: () => synced,
     getRoomId: () => room,
     getDoc: () => ydoc,
   };
-
-  return binding;
 }
