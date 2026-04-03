@@ -4,7 +4,13 @@ Real-time collaborative canvas and AI-assisted design prototype: **Fabric.js** e
 
 
 
-https://github.com/user-attachments/assets/36fe1501-51b0-46e0-860c-9b25385432f4
+
+https://github.com/user-attachments/assets/e08577c4-0801-45c8-9601-6aa560bdd8ea
+
+https://github.com/user-attachments/assets/cd23efbb-25b2-450e-87c5-8c7b9236b625
+
+
+
 
 
 
