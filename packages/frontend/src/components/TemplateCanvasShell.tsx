@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import * as Y from 'yjs';
+import type { YMapEvent } from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { FabricCanvas } from './FabricCanvas';
+import { ComposeStreamTimeline } from './ComposeStreamTimeline.tsx';
 import styles from './TemplateEditorShell.module.css';
 import type { TemplateFields, TemplateId, TemplatePatch } from '../types/template';
 import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
@@ -16,8 +18,8 @@ import {
 import { renderTemplateWithDiagnostics } from '../libs/template/renderTemplate.ts';
 import { streamTemplateCompose } from '../libs/template/composeTemplateClient.ts';
 import { DEFAULT_TEMPLATE_CANDIDATES, getTemplatePack } from '../libs/template/templatePacks.ts';
-import { STAGES, readStages } from '../libs/template/templateComposeStages.ts';
-import { cloneYMap } from '../libs/template/yjsMapUtils.ts';
+import { STAGES, clearStreamStageDones, readStages } from '../libs/template/templateComposeStages.ts';
+import { clearTemplateSlotRecordsIfFieldsEmpty, cloneYMap } from '../libs/template/yjsMapUtils.ts';
 import { withTemplateFieldFallbacks } from '../libs/template/templateFieldFallbacks.ts';
 import { bindFabricCanvasToYMap } from '../libs/canvas/bindYjsToFabric.ts';
 import { attachTemplateFabricViewport } from '../libs/canvas/templateFabricViewport.ts';
@@ -29,12 +31,33 @@ import {
 } from '../libs/template/templateArtboard.ts';
 import {
   applyTemplateFieldsToFabricObjects,
+  isTemplateSlotLaidOut,
   refitTemplateSceneAndRender,
   renderTemplateSlotsToCanvas,
 } from '../libs/template/templateCanvasFabric.ts';
+import { getObjectId } from '../libs/canvas/fabricRecords.ts';
 import { getTemplateFabricViewLayout } from '../libs/template/templateFabricViewLayout.ts';
 import { TEMPLATE_FABRIC_OBJECTS_MAP } from '../constants/templateEditor.ts';
 import type { CanvasObjectRecord } from '../types/canvas';
+
+/** True when this document was loaded via a full browser reload (F5 / refresh), not SPA navigation. */
+function isPageReload(): boolean {
+  if (typeof performance === 'undefined') return false;
+
+  const entries = performance.getEntriesByType?.('navigation');
+  if (entries && entries.length > 0) {
+    const nav = entries[0] as PerformanceNavigationTiming;
+    if (nav.type === 'reload') return true;
+  }
+
+  // Some environments omit the Navigation Timing entry; deprecated API still reports reload.
+  const legacy = (performance as unknown as { navigation?: { type?: number } }).navigation;
+  if (legacy && typeof legacy.type === 'number' && legacy.type === 1) {
+    return true;
+  }
+
+  return false;
+}
 
 function createBlankTemplateFields(): TemplateFields {
   return {
@@ -49,12 +72,6 @@ function createBlankTemplateFields(): TemplateFields {
 }
 
 export function TemplateCanvasShell(props: TemplateEditorShellProps) {
-  const filterIgnoredMissingFields = (id: TemplateId, slots: string[]) => {
-    if (id !== 'landing.v1') return slots;
-    const ignored = new Set(['slot:logo:4', 'slot:logo:5', 'slot:logo:6']);
-    return slots.filter((slotId) => !ignored.has(slotId));
-  };
-
   const artboardColorsForTemplateId = (_templateId: TemplateId) => DEFAULT_TEMPLATE_ARTBOARD_COLORS;
 
   const templateCandidatesRef = useRef<TemplateId[]>(DEFAULT_TEMPLATE_CANDIDATES);
@@ -77,6 +94,20 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   const fabricLayoutKeyRef = useRef<string>('');
   const canSyncTemplateObjectsRef = useRef(false);
   const pendingFabricCanvasRef = useRef<FabricCanvasType | null>(null);
+  /** Used by Yjs binding to ignore / drop 0×0 “disabled” slots (e.g. portrait `slot:hero:visual`). */
+  const currentTemplatePackRef = useRef(getTemplatePack('landing.v1'));
+
+  /** Run {@link resetSlotLayout} once after reload, only after Yjs sync + Fabric binding exist. */
+  const reloadLayoutResetPendingRef = useRef(false);
+  const yjsProviderSyncedOnceRef = useRef(false);
+  const resetSlotLayoutRef = useRef<() => void>(() => {});
+  const tryApplyReloadLayoutResetRef = useRef<() => void>(() => {});
+
+  /** Refit from Yjs fields + apply map; used after resize and when peers delete slot geometry. */
+  const refitFabricFromMapsRef = useRef<() => void>(() => {});
+  /** Skip observe-driven refit while this tab is doing its own resize+slot-key clear (avoids double work). */
+  const suppressTemplateFabricMapObserveRefitRef = useRef(false);
+  const fabricMapSlotDeletionRefitRafRef = useRef(0);
 
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 560 });
@@ -85,7 +116,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     canvasSizeRef.current = canvasSize;
   }, [canvasSize]);
 
-  const [, setStatusText] = useState('Ready');
+  const [statusText, setStatusText] = useState('Ready');
   const [templateId, setTemplateId] = useState<TemplateId>('landing.v1');
   const [templateTheme, setTemplateTheme] = useState(() => createDefaultTemplateMeta().theme);
   const [templateStatus, setTemplateStatus] = useState('idle');
@@ -95,7 +126,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   const [stages, setStages] = useState<StreamStage[]>(() =>
     STAGES.map((s) => ({ id: s.id, label: s.label, done: false })),
   );
-  const [missingFields, setMissingFields] = useState<string[]>([]);
   const [, setOverflowWarnings] = useState<string[]>([]);
   const [yjsMountEpoch, setYjsMountEpoch] = useState(0);
   const displayPrompt = sharedPrompt.trim().length > 0 ? sharedPrompt : 'default prompt';
@@ -163,6 +193,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const fieldsMap = fieldsMapRef.current;
     const streamMap = streamMapRef.current;
     const ydoc = ydocRef.current;
+    const objectsMap = objectsMapRef.current;
     if (!metaMap || !fieldsMap || !streamMap || !ydoc) return;
 
     composeAbortRef.current?.abort();
@@ -181,7 +212,17 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       metaMap.set('statusText', 'Streaming compose-template response...');
       metaMap.set('patchCount', 0);
       metaMap.set('prompt', promptValue);
-      STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
+      const clearedFields = createDefaultTemplateFields();
+      const clearedEntries = Object.entries(clearedFields) as Array<[string, unknown]>;
+      clearedEntries.forEach(([k, v]) => fieldsMap.set(k, v));
+      if (objectsMap) {
+        const slotKeys: string[] = [];
+        objectsMap.forEach((_v, k) => {
+          if (typeof k === 'string' && k.startsWith('slot:')) slotKeys.push(k);
+        });
+        for (const k of slotKeys) objectsMap.delete(k);
+      }
+      clearStreamStageDones(streamMap);
     });
 
     const templateCandidates = templateCandidatesRef.current;
@@ -275,10 +316,104 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     startComposeStream();
   };
 
+  /** Rebuild slot objects at canonical layout positions and drop stored Yjs geometry for those slots. */
+  const resetSlotLayout = useCallback(() => {
+    const canvas = fabricRef.current;
+    const metaMap = metaMapRef.current;
+    const fieldsMap = fieldsMapRef.current;
+    const objectsMap = objectsMapRef.current;
+    const binding = fabricBindingRef.current;
+    const ydoc = ydocRef.current;
+    if (!canvas || !metaMap || !fieldsMap || !objectsMap || !binding || !ydoc) return;
+
+    const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+    const fields = withTemplateFieldFallbacks(
+      normalizedMeta.templateId,
+      readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
+      { enabled: false },
+    );
+    const pack = getTemplatePack(normalizedMeta.templateId);
+    currentTemplatePackRef.current = pack;
+
+    canSyncTemplateObjectsRef.current = false;
+    const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, fields, {
+      artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+    });
+    pageOffsetRef.current = { pageX, pageY };
+
+    const slotKeysToDelete: string[] = [];
+    objectsMap.forEach((_v, k) => {
+      if (k.startsWith('slot:')) slotKeysToDelete.push(k);
+    });
+    ydoc.transact(() => {
+      for (const k of slotKeysToDelete) {
+        objectsMap.delete(k);
+      }
+    });
+
+    binding.applyFromYjs({ animatePositions: false });
+    canSyncTemplateObjectsRef.current = true;
+
+    const viewLayout = getTemplateFabricViewLayout(pack);
+    fitTemplatePageInViewport(canvas, {
+      pageX,
+      pageY,
+      width: viewLayout.viewW,
+      height: viewLayout.viewH,
+    });
+  }, []);
+
+  resetSlotLayoutRef.current = resetSlotLayout;
+  tryApplyReloadLayoutResetRef.current = () => {
+    if (!reloadLayoutResetPendingRef.current) return;
+    if (!yjsProviderSyncedOnceRef.current) return;
+    if (!fabricRef.current || !fabricBindingRef.current) return;
+    reloadLayoutResetPendingRef.current = false;
+    resetSlotLayoutRef.current();
+  };
+
+  refitFabricFromMapsRef.current = () => {
+    const c = fabricRef.current;
+    const meta = metaMapRef.current;
+    const fieldsMapCurrent = fieldsMapRef.current;
+    const binding = fabricBindingRef.current;
+    const ydocCurrent = ydocRef.current;
+    const objectsMapCurrent = objectsMapRef.current;
+    if (!c || !meta || !fieldsMapCurrent || !binding || !ydocCurrent || !objectsMapCurrent) return;
+
+    const normalizedMeta = readTemplateMetaFromMap(cloneYMap(meta));
+    const fields = withTemplateFieldFallbacks(
+      normalizedMeta.templateId,
+      readTemplateFieldsFromMap(cloneYMap(fieldsMapCurrent)),
+      { enabled: false },
+    );
+    const pack = getTemplatePack(normalizedMeta.templateId);
+    currentTemplatePackRef.current = pack;
+    canSyncTemplateObjectsRef.current = false;
+    const { pageX, pageY } = refitTemplateSceneAndRender(c, pack, fields, {
+      artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+    });
+    pageOffsetRef.current = { pageX, pageY };
+    clearTemplateSlotRecordsIfFieldsEmpty(ydocCurrent, objectsMapCurrent, fields);
+    binding.applyFromYjs({ animatePositions: false });
+    canSyncTemplateObjectsRef.current = true;
+    const viewLayout = getTemplateFabricViewLayout(pack);
+    fitTemplatePageInViewport(c, {
+      pageX,
+      pageY,
+      width: viewLayout.viewW,
+      height: viewLayout.viewH,
+    });
+  };
+
   useLayoutEffect(() => {
     const safeDocId =
       props.docId && props.docId.trim().length > 0 ? props.docId.trim() : 'template-default';
     const roomName = `yjs?doc=${safeDocId}`;
+
+    reloadLayoutResetPendingRef.current = isPageReload();
+    yjsProviderSyncedOnceRef.current = false;
+
     const ydoc = new Y.Doc();
     const provider = new WebsocketProvider('ws://localhost:4000', roomName, ydoc, { connect: true });
     ydocRef.current = ydoc;
@@ -293,10 +428,26 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     objectsMapRef.current = objectsMap;
     setYjsMountEpoch((n) => n + 1);
 
+    const onTemplateFabricObjectsChanged = (e: YMapEvent<CanvasObjectRecord>) => {
+      for (const key of e.keysChanged) {
+        if (typeof key !== 'string' || !key.startsWith('slot:')) continue;
+        if (objectsMap.has(key)) continue;
+        if (suppressTemplateFabricMapObserveRefitRef.current) return;
+        cancelAnimationFrame(fabricMapSlotDeletionRefitRafRef.current);
+        fabricMapSlotDeletionRefitRafRef.current = requestAnimationFrame(() => {
+          fabricMapSlotDeletionRefitRafRef.current = 0;
+          refitFabricFromMapsRef.current();
+        });
+        return;
+      }
+    };
+    objectsMap.observe(onTemplateFabricObjectsChanged);
+
     const syncLocalFromMaps = () => {
       const promptValue =
         typeof metaMap.get('prompt') === 'string' ? (metaMap.get('prompt') as string) : '';
       const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+      currentTemplatePackRef.current = getTemplatePack(normalizedMeta.templateId);
       const normalizedFields = withTemplateFieldFallbacks(
         normalizedMeta.templateId,
         readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
@@ -316,7 +467,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
           ? (metaMap.get('patchCount') as number)
           : 0,
       );
-      setMissingFields(filterIgnoredMissingFields(normalizedMeta.templateId, diagnostics.missingFields));
       setOverflowWarnings(diagnostics.overflowWarnings);
       setStatusText(
         typeof metaMap.get('statusText') === 'string'
@@ -339,11 +489,13 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         { enabled: false },
       );
       const pack = getTemplatePack(normalizedMeta.templateId);
+      currentTemplatePackRef.current = pack;
       canSyncTemplateObjectsRef.current = false;
       const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
         artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
       });
       pageOffsetRef.current = { pageX, pageY };
+      clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
       fabricBindingRef.current?.applyFromYjs({ animatePositions: false });
       canSyncTemplateObjectsRef.current = true;
       const viewLayout = getTemplateFabricViewLayout(pack);
@@ -367,6 +519,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         { enabled: false },
       );
       const pack = getTemplatePack(normalizedMeta.templateId);
+      currentTemplatePackRef.current = pack;
       const hasRenderedTemplateSlots = canvas.getObjects().some((obj) => isTemplateSlotFabricObject(obj));
       if (!hasRenderedTemplateSlots) {
         canSyncTemplateObjectsRef.current = false;
@@ -374,6 +527,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
           artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
         });
         pageOffsetRef.current = { pageX, pageY };
+        clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
         fabricBindingRef.current?.applyFromYjs({ animatePositions: false });
         canSyncTemplateObjectsRef.current = true;
         const viewLayout = getTemplateFabricViewLayout(pack);
@@ -386,6 +540,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         return;
       }
       applyTemplateFieldsToFabricObjects(canvas, pack, normalizedFields);
+      clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
     };
 
     const onMeta = () => {
@@ -412,6 +567,9 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     provider.on('sync', (isSynced: boolean) => {
       if (!isSynced) return;
 
+      yjsProviderSyncedOnceRef.current = true;
+      tryApplyReloadLayoutResetRef.current();
+
       const alreadyInitialized = metaMap.get('initialized') === true;
       ydoc.transact(() => {
         if (metaMap.get('initialized') === true) return;
@@ -428,7 +586,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         metaMap.set('patchCount', 0);
         const fieldEntries = Object.entries(defaultFields) as Array<[string, unknown]>;
         fieldEntries.forEach(([k, v]) => fieldsMap.set(k, v));
-        STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
+        clearStreamStageDones(streamMap);
       });
 
       syncLocalFromMaps();
@@ -439,6 +597,9 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     });
 
     return () => {
+      cancelAnimationFrame(fabricMapSlotDeletionRefitRafRef.current);
+      fabricMapSlotDeletionRefitRafRef.current = 0;
+      objectsMap.unobserve(onTemplateFabricObjectsChanged);
       setYjsMountEpoch(0);
       composeAbortRef.current?.abort();
       fabricDisposeRef.current?.();
@@ -492,33 +653,28 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
 
     const t = window.setTimeout(() => {
       const c = fabricRef.current;
-      const meta = metaMapRef.current;
-      const fieldsMap = fieldsMapRef.current;
       const binding = fabricBindingRef.current;
-      if (!c || !meta || !fieldsMap || !binding) return;
+      if (!c || !binding || !metaMapRef.current || !fieldsMapRef.current) return;
       if (canvasSize.w < 16 || canvasSize.h < 16) return;
       if (fabricLayoutKeyRef.current === key) return;
 
-      const normalizedMeta = readTemplateMetaFromMap(cloneYMap(meta));
-      const fields = withTemplateFieldFallbacks(
-        normalizedMeta.templateId,
-        readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
-        { enabled: false },
-      );
-      const pack = getTemplatePack(normalizedMeta.templateId);
-      canSyncTemplateObjectsRef.current = false;
-      const { pageX, pageY } = refitTemplateSceneAndRender(c, pack, fields, {
-        artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
-      });
-      pageOffsetRef.current = { pageX, pageY };
-      binding.applyFromYjs({ animatePositions: false });
-      canSyncTemplateObjectsRef.current = true;
-      const viewLayout = getTemplateFabricViewLayout(pack);
-      fitTemplatePageInViewport(c, {
-        pageX,
-        pageY,
-        width: viewLayout.viewW,
-        height: viewLayout.viewH,
+      suppressTemplateFabricMapObserveRefitRef.current = true;
+      const ydoc = ydocRef.current;
+      const objectsMap = objectsMapRef.current;
+      if (ydoc && objectsMap) {
+        ydoc.transact(() => {
+          const slotKeys: string[] = [];
+          objectsMap.forEach((_v, k) => {
+            if (typeof k === 'string' && k.startsWith('slot:')) slotKeys.push(k);
+          });
+          for (const k of slotKeys) {
+            objectsMap.delete(k);
+          }
+        });
+      }
+      refitFabricFromMapsRef.current();
+      queueMicrotask(() => {
+        suppressTemplateFabricMapObserveRefitRef.current = false;
       });
       fabricLayoutKeyRef.current = key;
     }, 100);
@@ -550,9 +706,12 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     canvas.setDimensions({ width: w, height: h });
     canvas.calcOffset();
 
+    const initialMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+    currentTemplatePackRef.current = getTemplatePack(initialMeta.templateId);
+
     const { pageX, pageY } = setupTemplateArtboard(
       canvas,
-      artboardColorsForTemplateId(readTemplateMetaFromMap(cloneYMap(metaMap)).templateId),
+      artboardColorsForTemplateId(initialMeta.templateId),
     );
     pageOffsetRef.current = { pageX, pageY };
 
@@ -560,7 +719,18 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const binding = bindFabricCanvasToYMap({
       canvas,
       ymap,
-      shouldPreserveObject: (obj) => isTemplateSlotFabricObject(obj),
+      shouldPreserveObject: (obj) => {
+        if (!isTemplateSlotFabricObject(obj)) return false;
+        const id = getObjectId(obj);
+        if (!id) return false;
+        const slot = currentTemplatePackRef.current.slots.find((s) => s.id === id);
+        return Boolean(slot && isTemplateSlotLaidOut(slot));
+      },
+      shouldSyncId: (id) => {
+        if (!id.startsWith('slot:')) return true;
+        const slot = currentTemplatePackRef.current.slots.find((s) => s.id === id);
+        return Boolean(slot && isTemplateSlotLaidOut(slot));
+      },
       shouldSyncObject: (obj) =>
         canSyncTemplateObjectsRef.current && isTemplateSlotFabricObject(obj),
       mapRecordForUpsert: ({ rec }) => {
@@ -590,7 +760,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     });
     fabricBindingRef.current = binding;
 
-    const normalizedMeta = readTemplateMetaFromMap(cloneYMap(metaMap));
+    const normalizedMeta = initialMeta;
     const normalizedFields = withTemplateFieldFallbacks(
       normalizedMeta.templateId,
       readTemplateFieldsFromMap(cloneYMap(fieldsMap)),
@@ -604,6 +774,11 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       pageX,
       pageY,
     );
+    const ydocForSlots = ydocRef.current;
+    const objectsMapForSlots = objectsMapRef.current;
+    if (ydocForSlots && objectsMapForSlots) {
+      clearTemplateSlotRecordsIfFieldsEmpty(ydocForSlots, objectsMapForSlots, normalizedFields);
+    }
     binding.applyFromYjs({ animatePositions: false });
     canSyncTemplateObjectsRef.current = true;
 
@@ -616,6 +791,9 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       height: viewLayout.viewH,
     });
     fabricLayoutKeyRef.current = `${canvas.width}x${canvas.height}`;
+
+    // Reload only: reset after Yjs has merged `templateFabricObjects` (see provider `sync`).
+    tryApplyReloadLayoutResetRef.current();
 
     const detachViewport = attachTemplateFabricViewport(canvas);
 
@@ -647,7 +825,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       binding.destroy();
       detachViewport();
     };
-  }, []);
+  }, [resetSlotLayout]);
 
   useEffect(() => {
     if (yjsMountEpoch === 0) return;
@@ -665,6 +843,14 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
           <div className={styles.sub}>Prompt: {displayPrompt}</div>
         </div>
         <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={resetSlotLayout}
+            title="Snap all template slots back to the designed layout (clears saved positions)"
+          >
+            Reset layout
+          </button>
           <button type="button" className={styles.btn} onClick={regenerate}>
             Regenerate composition
           </button>
@@ -718,25 +904,12 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
             <span>Canvas</span>
             <strong>Wheel zoom · Alt+drag pan</strong>
           </div>
-          <div className={styles.section}>
-            <h3>Stream events</h3>
-            <ul className={styles.streamList}>
-              {stages.map((stage) => (
-                <li
-                  key={stage.id}
-                  className={`${styles.streamItem} ${stage.done ? styles.streamItemDone : ''}`}
-                >
-                  {stage.done ? '✓' : '…'} {stage.label}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className={styles.section}>
-            <h3>Missing fields</h3>
-            <div className={styles.list}>
-              {missingFields.length > 0 ? missingFields.join(', ') : 'none'}
-            </div>
-          </div>
+          <ComposeStreamTimeline
+            stages={stages}
+            streaming={templateStatus === 'streaming'}
+            composeFailed={templateStatus === 'error'}
+            statusText={statusText}
+          />
         </aside>
       </div>
     </div>

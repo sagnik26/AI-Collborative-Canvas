@@ -168,6 +168,7 @@ export function renderTemplateWithDiagnostics(
   const records: CanvasObjectRecord[] = [];
 
   for (const slot of template.slots) {
+    if (slot.w <= 0 || slot.h <= 0) continue;
     const scale = scaleForSlot(slot);
     const cx = slot.x + slot.w / 2;
     const cy = slot.y + slot.h / 2;

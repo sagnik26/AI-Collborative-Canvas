@@ -2,8 +2,9 @@ import { Group, Textbox } from 'fabric';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import type { TemplateFields, TemplateSchema, TemplateSlot } from '../../types/template';
 import { getObjectId } from '../canvas/fabricRecords.ts';
+import { hasAnyTemplateContent } from './templateFieldsContent.ts';
 import type { TemplateArtboardColors } from './templateArtboard.ts';
-import { setupTemplateArtboard } from './templateArtboard.ts';
+import { isTemplateSlotFabricObject, setupTemplateArtboard } from './templateArtboard.ts';
 import { slotToFabricObject } from '../../Design System/slotToFabricObject.ts';
 import { fitSlotTextForCanvas, textForTemplateSlot } from './renderTemplate.ts';
 import { getTemplateFabricViewLayout } from './templateFabricViewLayout.ts';
@@ -73,6 +74,13 @@ function shouldHideWhenBlank(slot: TemplateSlot) {
   return false;
 }
 
+export { hasAnyTemplateContent } from './templateFieldsContent.ts';
+
+/** Portrait `landing.v1` uses w/h 0 to disable `slot:hero:visual`; do not fabric-render those. */
+export function isTemplateSlotLaidOut(slot: Pick<TemplateSlot, 'w' | 'h'>): boolean {
+  return slot.w > 0 && slot.h > 0;
+}
+
 export function removeTemplateSlotObjects(canvas: FabricCanvasType) {
   for (const obj of [...canvas.getObjects()]) {
     canvas.remove(obj);
@@ -88,7 +96,12 @@ export function renderTemplateSlotsToCanvas(
 ) {
   const layout = getTemplateFabricViewLayout(template);
   removeTemplateSlotObjects(canvas);
+  if (!hasAnyTemplateContent(fields)) {
+    canvas.requestRenderAll();
+    return;
+  }
   for (const slot of template.slots) {
+    if (!isTemplateSlotLaidOut(slot)) continue;
     const raw = textForTemplateSlot(template.templateId, slot.id, fields);
     if (raw === null) continue;
     if (shouldHideWhenBlank(slot) && (raw == null || raw.trim().length === 0)) continue;
@@ -149,7 +162,20 @@ export function applyTemplateFieldsToFabricObjects(
   const pageX = (cw - layout.viewW) / 2;
   const pageY = (ch - layout.viewH) / 2;
 
+  if (!hasAnyTemplateContent(fields)) {
+    for (const obj of [...canvas.getObjects()]) {
+      if (isTemplateSlotFabricObject(obj)) canvas.remove(obj);
+    }
+    canvas.requestRenderAll();
+    return;
+  }
+
   for (const slot of template.slots) {
+    if (!isTemplateSlotLaidOut(slot)) {
+      const stale = canvas.getObjects().find((o) => getObjectId(o) === slot.id);
+      if (stale) canvas.remove(stale);
+      continue;
+    }
     const rawText = textForTemplateSlot(template.templateId, slot.id, fields);
     const newText = typeof rawText === 'string' ? fitSlotTextForCanvas(slot, rawText) : rawText;
     const obj = canvas.getObjects().find((o) => getObjectId(o) === slot.id);

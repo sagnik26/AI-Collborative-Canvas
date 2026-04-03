@@ -13,12 +13,13 @@ import {
 import { renderTemplateWithDiagnostics } from '../libs/template/renderTemplate.ts';
 import { streamTemplateCompose } from '../libs/template/composeTemplateClient.ts';
 import { DEFAULT_TEMPLATE_CANDIDATES, getTemplatePack } from '../libs/template/templatePacks.ts';
-import { STAGES, readStages } from '../libs/template/templateComposeStages.ts';
+import { STAGES, clearStreamStageDones, readStages } from '../libs/template/templateComposeStages.ts';
 import { cloneYMap, hasText } from '../libs/template/yjsMapUtils.ts';
 import { withTemplateFieldFallbacks } from '../libs/template/templateFieldFallbacks.ts';
 import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
 import { A4_BASE_HEIGHT, A4_BASE_WIDTH } from '../constants/templateEditor';
 import { layoutClassForTemplateId, pageClassForTheme } from '../libs/template/templateEditorClasses.ts';
+import { ComposeStreamTimeline } from './ComposeStreamTimeline.tsx';
 
 // Constants and pure helpers live in `src/constants/**` and `src/libs/**`.
 
@@ -54,7 +55,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
   const streamMapRef = useRef<Y.Map<unknown> | null>(null);
   const composeAbortRef = useRef<AbortController | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [, setStatusText] = useState('Ready');
+  const [statusText, setStatusText] = useState('Ready');
   const [templateId, setTemplateId] = useState('landing.v1');
   const [templateTheme, setTemplateTheme] = useState<TemplateTheme>(() =>
     createDefaultTemplateMeta().theme,
@@ -67,7 +68,6 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
   const [stages, setStages] = useState<StreamStage[]>(() =>
     STAGES.map((s) => ({ id: s.id, label: s.label, done: false })),
   );
-  const [missingFields, setMissingFields] = useState<string[]>([]);
   const [, setOverflowWarnings] = useState<string[]>([]);
   const [pageScale, setPageScale] = useState(1);
   const displayPrompt = sharedPrompt.trim().length > 0 ? sharedPrompt : 'default prompt';
@@ -148,7 +148,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
       metaMap.set('prompt', promptValue);
       const loadingFieldEntries = Object.entries(loadingFields) as Array<[string, unknown]>;
       loadingFieldEntries.forEach(([k, v]) => fieldsMap.set(k, v));
-      STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
+      clearStreamStageDones(streamMap);
     });
 
     const templateCandidates = templateCandidatesRef.current;
@@ -276,7 +276,6 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
           ? (metaMap.get('patchCount') as number)
           : 0,
       );
-      setMissingFields(diagnostics.missingFields);
       setOverflowWarnings(diagnostics.overflowWarnings);
       setStatusText(
         typeof metaMap.get('statusText') === 'string'
@@ -300,7 +299,7 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
         metaMap.set('patchCount', 0);
         const fieldEntries = Object.entries(defaultFields) as Array<[string, unknown]>;
         fieldEntries.forEach(([k, v]) => fieldsMap.set(k, v));
-        STAGES.forEach((stage) => streamMap.set(`done:${stage.id}`, false));
+        clearStreamStageDones(streamMap);
       }
     });
 
@@ -553,25 +552,12 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
             <span>Sync</span>
             <strong>{isConnected ? 'connected' : 'connecting'}</strong>
           </div>
-          <div className={styles.section}>
-            <h3>Stream events</h3>
-            <ul className={styles.streamList}>
-              {stages.map((stage) => (
-                <li
-                  key={stage.id}
-                  className={`${styles.streamItem} ${stage.done ? styles.streamItemDone : ''}`}
-                >
-                  {stage.done ? '✓' : '…'} {stage.label}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className={styles.section}>
-            <h3>Missing fields</h3>
-            <div className={styles.list}>
-              {missingFields.length > 0 ? missingFields.join(', ') : 'none'}
-            </div>
-          </div>
+          <ComposeStreamTimeline
+            stages={stages}
+            streaming={isLoading}
+            composeFailed={templateStatus === 'error'}
+            statusText={statusText}
+          />
         </aside>
       </div>
     </div>
