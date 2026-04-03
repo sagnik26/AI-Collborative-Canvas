@@ -78,7 +78,14 @@ export function bindFabricCanvasToYMap(opts: {
       canvas.getObjects().forEach((o) => {
         const obj = o as FabricObject;
         const id = getObjectId(obj);
-        if (shouldSyncObject && !shouldSyncObject(obj)) return;
+        if (shouldSyncObject && !shouldSyncObject(obj)) {
+          // Still drop orphans when the map no longer tracks this id (e.g. hidden template slots
+          // that must not upsert back into Yjs).
+          if (id && !liveIds.has(id) && !shouldPreserveObject?.(obj)) {
+            canvas.remove(obj);
+          }
+          return;
+        }
         if (id && !liveIds.has(id)) {
           if (shouldPreserveObject?.(obj)) return;
           canvas.remove(obj);

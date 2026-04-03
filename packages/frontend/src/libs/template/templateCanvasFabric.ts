@@ -46,10 +46,12 @@ function pruneOverlappingTemplateSlots(canvas: FabricCanvasType) {
   const removed = new Set<string>();
   for (let i = 0; i < objects.length; i += 1) {
     const a = objects[i];
+    if (!isTemplateSlotFabricObject(a)) continue;
     const idA = getObjectId(a);
     if (!idA || removed.has(idA)) continue;
     for (let j = i + 1; j < objects.length; j += 1) {
       const b = objects[j];
+      if (!isTemplateSlotFabricObject(b)) continue;
       const idB = getObjectId(b);
       if (!idB || removed.has(idB)) continue;
       if (!intersects(a, b)) continue;
@@ -94,6 +96,7 @@ export function renderTemplateSlotsToCanvas(
   pageX: number,
   pageY: number,
   theme?: TemplateTheme,
+  hiddenSlotIds?: ReadonlySet<string>,
 ) {
   const layout = getTemplateFabricViewLayout(template);
   removeTemplateSlotObjects(canvas);
@@ -102,6 +105,7 @@ export function renderTemplateSlotsToCanvas(
     return;
   }
   for (const slot of template.slots) {
+    if (hiddenSlotIds?.has(slot.id)) continue;
     if (!isTemplateSlotLaidOut(slot)) continue;
     const raw = textForTemplateSlot(template.templateId, slot.id, fields);
     if (raw === null) continue;
@@ -118,7 +122,11 @@ export function refitTemplateSceneAndRender(
   canvas: FabricCanvasType,
   template: TemplateSchema,
   fields: TemplateFields,
-  options?: { artboardColors?: TemplateArtboardColors; theme?: TemplateTheme },
+  options?: {
+    artboardColors?: TemplateArtboardColors;
+    theme?: TemplateTheme;
+    hiddenSlotIds?: ReadonlySet<string>;
+  },
 ): { pageX: number; pageY: number } {
   const cw = typeof canvas.width === 'number' ? canvas.width : 0;
   const ch = typeof canvas.height === 'number' ? canvas.height : 0;
@@ -130,7 +138,15 @@ export function refitTemplateSceneAndRender(
 
   setupTemplateArtboard(canvas, options?.artboardColors, { width: pageW, height: pageH });
 
-  renderTemplateSlotsToCanvas(canvas, template, fields, pageX, pageY, options?.theme);
+  renderTemplateSlotsToCanvas(
+    canvas,
+    template,
+    fields,
+    pageX,
+    pageY,
+    options?.theme,
+    options?.hiddenSlotIds,
+  );
   return { pageX, pageY };
 }
 
@@ -157,6 +173,7 @@ export function applyTemplateFieldsToFabricObjects(
   template: TemplateSchema,
   fields: TemplateFields,
   theme?: TemplateTheme,
+  hiddenSlotIds?: ReadonlySet<string>,
 ) {
   const layout = getTemplateFabricViewLayout(template);
   const cw = typeof canvas.width === 'number' ? canvas.width : 0;
@@ -173,6 +190,11 @@ export function applyTemplateFieldsToFabricObjects(
   }
 
   for (const slot of template.slots) {
+    if (hiddenSlotIds?.has(slot.id)) {
+      const stale = canvas.getObjects().find((o) => getObjectId(o) === slot.id);
+      if (stale) canvas.remove(stale);
+      continue;
+    }
     if (!isTemplateSlotLaidOut(slot)) {
       const stale = canvas.getObjects().find((o) => getObjectId(o) === slot.id);
       if (stale) canvas.remove(stale);

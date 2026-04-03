@@ -379,7 +379,12 @@ export function TemplateEditorShell(props: TemplateEditorShellProps) {
           <div className={styles.sub}>Prompt: {displayPrompt}</div>
         </div>
         <div className={styles.actions}>
-          <button type="button" className={styles.btn} onClick={regenerate}>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={regenerate}
+            disabled={isLoading}
+          >
             Regenerate composition
           </button>
         </div>

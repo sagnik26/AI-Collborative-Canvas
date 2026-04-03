@@ -12,7 +12,10 @@ export function DesignShell() {
   /** Synced on chip click so Create always sees the latest allowlist (avoids stale state if Create is clicked right after a chip). */
   const composeCandidatesRef = useRef<TemplateId[] | undefined>(undefined);
 
+  const hasPrompt = prompt.trim().length > 0;
+
   const goToEditor = () => {
+    if (!hasPrompt) return;
     const docId = createDocId();
     const search = new URLSearchParams();
     search.set('doc', docId);
@@ -61,8 +64,9 @@ export function DesignShell() {
                 id="design-prompt"
                 className={styles.textarea}
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Or describe your own idea here, then Create."
+                readOnly
+                placeholder="Choose a starter above — your prompt will show here."
+                title="Filled from starters above; not editable."
                 rows={3}
               />
             </div>
@@ -74,6 +78,7 @@ export function DesignShell() {
                 type="button"
                 className={styles.primaryBtn}
                 onClick={() => goToEditor()}
+                disabled={!hasPrompt}
               >
                 Create
               </button>

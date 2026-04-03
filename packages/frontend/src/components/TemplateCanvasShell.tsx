@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+} from 'react';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
 import * as Y from 'yjs';
 import type { YMapEvent } from 'yjs';
@@ -6,6 +13,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { FabricCanvas } from './FabricCanvas';
 import { ComposeStreamTimeline } from './ComposeStreamTimeline.tsx';
 import styles from './TemplateEditorShell.module.css';
+import type { CanvasObjectKind, CanvasObjectRecord } from '../types/canvas';
 import type { TemplateFields, TemplateId, TemplatePatch } from '../types/template';
 import type { StreamStage, TemplateEditorShellProps } from '../types/templateEditor';
 import {
@@ -35,10 +43,21 @@ import {
   refitTemplateSceneAndRender,
   renderTemplateSlotsToCanvas,
 } from '../libs/template/templateCanvasFabric.ts';
-import { getObjectId } from '../libs/canvas/fabricRecords.ts';
+import {
+  getDesignPaletteRoot,
+  getObjectId,
+  isDesignPaletteFabricObject,
+} from '../libs/canvas/fabricRecords.ts';
 import { getTemplateFabricViewLayout } from '../libs/template/templateFabricViewLayout.ts';
-import { TEMPLATE_FABRIC_OBJECTS_MAP } from '../constants/templateEditor.ts';
-import type { CanvasObjectRecord } from '../types/canvas';
+import {
+  TEMPLATE_FABRIC_OBJECTS_MAP,
+  TEMPLATE_HIDDEN_SLOTS_MAP,
+} from '../constants/templateEditor.ts';
+import {
+  createDesignPaletteObject,
+  DESIGN_DRAG_MIME,
+  DESIGN_PALETTE_ITEMS,
+} from '../libs/template/designPaletteFabric.ts';
 
 /** True when this document was loaded via a full browser reload (F5 / refresh), not SPA navigation. */
 function isPageReload(): boolean {
@@ -85,6 +104,8 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   const fieldsMapRef = useRef<Y.Map<unknown> | null>(null);
   const streamMapRef = useRef<Y.Map<unknown> | null>(null);
   const objectsMapRef = useRef<Y.Map<CanvasObjectRecord> | null>(null);
+  const hiddenSlotsMapRef = useRef<Y.Map<unknown> | null>(null);
+  const hiddenSlotIdsRef = useRef<ReadonlySet<string>>(new Set());
   const composeAbortRef = useRef<AbortController | null>(null);
   const replaceFieldsPendingRunRef = useRef<string | null>(null);
 
@@ -112,6 +133,8 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   /** Skip observe-driven refit while this tab is doing its own resize+slot-key clear (avoids double work). */
   const suppressTemplateFabricMapObserveRefitRef = useRef(false);
   const fabricMapSlotDeletionRefitRafRef = useRef(0);
+  const hiddenSlotsMapObserveRefitRafRef = useRef(0);
+  const removeSelectedLayoutRef = useRef<() => void>(() => {});
 
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 800, h: 560 });
@@ -132,7 +155,10 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   );
   const [, setOverflowWarnings] = useState<string[]>([]);
   const [yjsMountEpoch, setYjsMountEpoch] = useState(0);
+  const [designPanelTick, setDesignPanelTick] = useState(0);
+  const [hasDeletableCanvasSelection, setHasDeletableCanvasSelection] = useState(false);
   const displayPrompt = sharedPrompt.trim().length > 0 ? sharedPrompt : 'default prompt';
+  const composeInProgress = templateStatus === 'streaming';
   const stableDocKey =
     props.docId && props.docId.trim().length > 0 ? props.docId.trim() : 'template-default';
 
@@ -192,12 +218,22 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     return true;
   };
 
+  const rebuildHiddenSlotIds = useCallback(() => {
+    const m = hiddenSlotsMapRef.current;
+    const next = new Set<string>();
+    m?.forEach((_v, k) => {
+      if (typeof k === 'string' && k.startsWith('slot:')) next.add(k);
+    });
+    hiddenSlotIdsRef.current = next;
+  }, []);
+
   const startComposeStream = () => {
     const metaMap = metaMapRef.current;
     const fieldsMap = fieldsMapRef.current;
     const streamMap = streamMapRef.current;
     const ydoc = ydocRef.current;
     const objectsMap = objectsMapRef.current;
+    const hiddenSlotsMap = hiddenSlotsMapRef.current;
     if (!metaMap || !fieldsMap || !streamMap || !ydoc) return;
 
     composeAbortRef.current?.abort();
@@ -219,6 +255,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       const clearedFields = createDefaultTemplateFields();
       const clearedEntries = Object.entries(clearedFields) as Array<[string, unknown]>;
       clearedEntries.forEach(([k, v]) => fieldsMap.set(k, v));
+      hiddenSlotsMap?.clear();
       if (objectsMap) {
         const slotKeys: string[] = [];
         objectsMap.forEach((_v, k) => {
@@ -228,6 +265,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       }
       clearStreamStageDones(streamMap);
     });
+    rebuildHiddenSlotIds();
 
     const templateCandidates = templateCandidatesRef.current;
 
@@ -320,6 +358,132 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     startComposeStream();
   };
 
+  const addDesignComponentAtCenter = useCallback(
+    (kind: CanvasObjectKind) => {
+      const canvas = fabricRef.current;
+      if (!canvas || composeInProgress) return;
+      const p = canvas.getCenterPoint();
+      const obj = createDesignPaletteObject(canvas, kind, p.x, p.y);
+      canvas.add(obj);
+      canvas.setActiveObject(obj);
+      canvas.requestRenderAll();
+    },
+    [composeInProgress],
+  );
+
+  const dropDesignPaletteOnCanvas = useCallback(
+    (e: globalThis.DragEvent) => {
+      e.preventDefault();
+      const canvas = fabricRef.current;
+      if (!canvas || composeInProgress) return;
+      const raw = e.dataTransfer?.getData(DESIGN_DRAG_MIME);
+      if (!raw) return;
+      const kind = raw as CanvasObjectKind;
+      if (!DESIGN_PALETTE_ITEMS.some((item) => item.kind === kind)) return;
+      const p = canvas.getScenePoint(e);
+      const obj = createDesignPaletteObject(canvas, kind, p.x, p.y);
+      canvas.add(obj);
+      canvas.setActiveObject(obj);
+      canvas.requestRenderAll();
+    },
+    [composeInProgress],
+  );
+
+  const onCanvasDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const onCanvasDrop = useCallback(
+    (e: DragEvent) => {
+      dropDesignPaletteOnCanvas(e.nativeEvent);
+    },
+    [dropDesignPaletteOnCanvas],
+  );
+
+  const deleteSelectedLayoutElements = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas || composeInProgress) return;
+    const ydoc = ydocRef.current;
+    const objectsMap = objectsMapRef.current;
+    const hiddenSlotsMap = hiddenSlotsMapRef.current;
+    if (!ydoc || !objectsMap || !hiddenSlotsMap) return;
+
+    const active = canvas.getActiveObjects();
+    const designRoots = new Set<FabricObject>();
+    for (const o of active) {
+      const r = getDesignPaletteRoot(o);
+      if (r) designRoots.add(r);
+    }
+    const designToRemove = [...designRoots];
+    const slotToRemove = active.filter(isTemplateSlotFabricObject);
+    if (designToRemove.length === 0 && slotToRemove.length === 0) return;
+
+    ydoc.transact(() => {
+      for (const obj of slotToRemove) {
+        const id = getObjectId(obj);
+        if (!id || !id.startsWith('slot:')) continue;
+        hiddenSlotsMap.set(id, true);
+        objectsMap.delete(id);
+      }
+    });
+    rebuildHiddenSlotIds();
+
+    for (const o of designToRemove) canvas.remove(o);
+    for (const o of slotToRemove) canvas.remove(o);
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+  }, [composeInProgress, rebuildHiddenSlotIds]);
+
+  removeSelectedLayoutRef.current = deleteSelectedLayoutElements;
+
+  useEffect(() => {
+    const c = fabricRef.current;
+    if (!c) return;
+    const sync = () => {
+      setHasDeletableCanvasSelection(
+        c
+          .getActiveObjects()
+          .some((o) => isDesignPaletteFabricObject(o) || isTemplateSlotFabricObject(o)),
+      );
+    };
+    c.on('selection:created', sync);
+    c.on('selection:updated', sync);
+    c.on('selection:cleared', sync);
+    sync();
+    return () => {
+      c.off('selection:created', sync);
+      c.off('selection:updated', sync);
+      c.off('selection:cleared', sync);
+    };
+  }, [designPanelTick]);
+
+  /** Drops hit the Fabric `<canvas>` layers; host `onDrop` alone is not enough. */
+  useEffect(() => {
+    const c = fabricRef.current;
+    if (!c) return;
+    const layers = [c.upperCanvasEl, c.lowerCanvasEl].filter(
+      (el): el is HTMLCanvasElement => el instanceof HTMLCanvasElement,
+    );
+    const onOver = (ev: globalThis.DragEvent) => {
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    };
+    const onDrop = (ev: globalThis.DragEvent) => {
+      dropDesignPaletteOnCanvas(ev);
+    };
+    for (const el of layers) {
+      el.addEventListener('dragover', onOver);
+      el.addEventListener('drop', onDrop);
+    }
+    return () => {
+      for (const el of layers) {
+        el.removeEventListener('dragover', onOver);
+        el.removeEventListener('drop', onDrop);
+      }
+    };
+  }, [designPanelTick, dropDesignPaletteOnCanvas]);
+
   /** Rebuild slot objects at canonical layout positions and drop stored Yjs geometry for those slots. */
   const resetSlotLayout = useCallback(() => {
     const canvas = fabricRef.current;
@@ -339,10 +503,17 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const pack = getTemplatePack(normalizedMeta.templateId);
     currentTemplatePackRef.current = pack;
 
+    const hiddenSlotsMap = hiddenSlotsMapRef.current;
+    ydoc.transact(() => {
+      hiddenSlotsMap?.clear();
+    });
+    rebuildHiddenSlotIds();
+
     canSyncTemplateObjectsRef.current = false;
     const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, fields, {
       artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
       theme: normalizedMeta.theme,
+      hiddenSlotIds: hiddenSlotIdsRef.current,
     });
     pageOffsetRef.current = { pageX, pageY };
 
@@ -366,7 +537,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       width: viewLayout.viewW,
       height: viewLayout.viewH,
     });
-  }, []);
+  }, [rebuildHiddenSlotIds]);
 
   resetSlotLayoutRef.current = resetSlotLayout;
   tryApplyReloadLayoutResetRef.current = () => {
@@ -386,6 +557,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const objectsMapCurrent = objectsMapRef.current;
     if (!c || !meta || !fieldsMapCurrent || !binding || !ydocCurrent || !objectsMapCurrent) return;
 
+    rebuildHiddenSlotIds();
     const normalizedMeta = readTemplateMetaFromMap(cloneYMap(meta));
     const fields = withTemplateFieldFallbacks(
       normalizedMeta.templateId,
@@ -398,6 +570,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const { pageX, pageY } = refitTemplateSceneAndRender(c, pack, fields, {
       artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
       theme: normalizedMeta.theme,
+      hiddenSlotIds: hiddenSlotIdsRef.current,
     });
     pageOffsetRef.current = { pageX, pageY };
     clearTemplateSlotRecordsIfFieldsEmpty(ydocCurrent, objectsMapCurrent, fields);
@@ -428,11 +601,33 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     const fieldsMap = ydoc.getMap<unknown>('templateFields');
     const streamMap = ydoc.getMap<unknown>('templateStream');
     const objectsMap = ydoc.getMap<CanvasObjectRecord>(TEMPLATE_FABRIC_OBJECTS_MAP);
+    const hiddenSlotsMap = ydoc.getMap<unknown>(TEMPLATE_HIDDEN_SLOTS_MAP);
     metaMapRef.current = metaMap;
     fieldsMapRef.current = fieldsMap;
     streamMapRef.current = streamMap;
     objectsMapRef.current = objectsMap;
+    hiddenSlotsMapRef.current = hiddenSlotsMap;
+    const nextHidden = new Set<string>();
+    hiddenSlotsMap.forEach((_v, k) => {
+      if (typeof k === 'string' && k.startsWith('slot:')) nextHidden.add(k);
+    });
+    hiddenSlotIdsRef.current = nextHidden;
     setYjsMountEpoch((n) => n + 1);
+
+    const onHiddenSlotsChanged = () => {
+      const m = hiddenSlotsMapRef.current;
+      const next = new Set<string>();
+      m?.forEach((_v, k) => {
+        if (typeof k === 'string' && k.startsWith('slot:')) next.add(k);
+      });
+      hiddenSlotIdsRef.current = next;
+      cancelAnimationFrame(hiddenSlotsMapObserveRefitRafRef.current);
+      hiddenSlotsMapObserveRefitRafRef.current = requestAnimationFrame(() => {
+        hiddenSlotsMapObserveRefitRafRef.current = 0;
+        refitFabricFromMapsRef.current();
+      });
+    };
+    hiddenSlotsMap.observe(onHiddenSlotsChanged);
 
     const onTemplateFabricObjectsChanged = (e: YMapEvent<CanvasObjectRecord>) => {
       for (const key of e.keysChanged) {
@@ -487,11 +682,14 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       const canvas = fabricRef.current;
       const fieldsMapCurrent = fieldsMapRef.current;
       if (!canvas || !fieldsMapCurrent) return;
-      if (
-        normalizedMeta.templateId === lastRenderedTemplateIdRef.current &&
-        normalizedMeta.theme === lastRenderedThemeRef.current
-      ) {
+      const sameTemplate = normalizedMeta.templateId === lastRenderedTemplateIdRef.current;
+      const sameTheme = normalizedMeta.theme === lastRenderedThemeRef.current;
+      if (sameTemplate && sameTheme) {
         return;
+      }
+      if (!sameTemplate) {
+        ydoc.transact(() => hiddenSlotsMapRef.current?.clear());
+        hiddenSlotIdsRef.current = new Set();
       }
       lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
       lastRenderedThemeRef.current = normalizedMeta.theme;
@@ -506,6 +704,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
         artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
         theme: normalizedMeta.theme,
+        hiddenSlotIds: hiddenSlotIdsRef.current,
       });
       pageOffsetRef.current = { pageX, pageY };
       clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
@@ -533,12 +732,19 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       );
       const pack = getTemplatePack(normalizedMeta.templateId);
       currentTemplatePackRef.current = pack;
+      const hidden = hiddenSlotsMapRef.current;
+      const nextHidden = new Set<string>();
+      hidden?.forEach((_v, k) => {
+        if (typeof k === 'string' && k.startsWith('slot:')) nextHidden.add(k);
+      });
+      hiddenSlotIdsRef.current = nextHidden;
       const hasRenderedTemplateSlots = canvas.getObjects().some((obj) => isTemplateSlotFabricObject(obj));
       if (!hasRenderedTemplateSlots) {
         canSyncTemplateObjectsRef.current = false;
         const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
           artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
           theme: normalizedMeta.theme,
+          hiddenSlotIds: hiddenSlotIdsRef.current,
         });
         pageOffsetRef.current = { pageX, pageY };
         clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
@@ -553,7 +759,13 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         });
         return;
       }
-      applyTemplateFieldsToFabricObjects(canvas, pack, normalizedFields, normalizedMeta.theme);
+      applyTemplateFieldsToFabricObjects(
+        canvas,
+        pack,
+        normalizedFields,
+        normalizedMeta.theme,
+        hiddenSlotIdsRef.current,
+      );
       clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
     };
 
@@ -613,6 +825,9 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     return () => {
       cancelAnimationFrame(fabricMapSlotDeletionRefitRafRef.current);
       fabricMapSlotDeletionRefitRafRef.current = 0;
+      cancelAnimationFrame(hiddenSlotsMapObserveRefitRafRef.current);
+      hiddenSlotsMapObserveRefitRafRef.current = 0;
+      hiddenSlotsMap.unobserve(onHiddenSlotsChanged);
       objectsMap.unobserve(onTemplateFabricObjectsChanged);
       setYjsMountEpoch(0);
       composeAbortRef.current?.abort();
@@ -630,6 +845,8 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       fieldsMapRef.current = null;
       streamMapRef.current = null;
       objectsMapRef.current = null;
+      hiddenSlotsMapRef.current = null;
+      hiddenSlotIdsRef.current = new Set();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.docId]);
@@ -737,16 +954,27 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         if (!isTemplateSlotFabricObject(obj)) return false;
         const id = getObjectId(obj);
         if (!id) return false;
+        if (hiddenSlotIdsRef.current.has(id)) return false;
         const slot = currentTemplatePackRef.current.slots.find((s) => s.id === id);
         return Boolean(slot && isTemplateSlotLaidOut(slot));
       },
       shouldSyncId: (id) => {
+        if (hiddenSlotIdsRef.current.has(id)) return false;
         if (!id.startsWith('slot:')) return true;
         const slot = currentTemplatePackRef.current.slots.find((s) => s.id === id);
         return Boolean(slot && isTemplateSlotLaidOut(slot));
       },
-      shouldSyncObject: (obj) =>
-        canSyncTemplateObjectsRef.current && isTemplateSlotFabricObject(obj),
+      shouldSyncObject: (obj) => {
+        if (!canSyncTemplateObjectsRef.current) return false;
+        if (isDesignPaletteFabricObject(obj)) return true;
+        if (!isTemplateSlotFabricObject(obj)) return false;
+        const id = getObjectId(obj);
+        if (id && hiddenSlotIdsRef.current.has(id)) return false;
+        const slot = id
+          ? currentTemplatePackRef.current.slots.find((s) => s.id === id)
+          : undefined;
+        return Boolean(slot && isTemplateSlotLaidOut(slot));
+      },
       mapRecordForUpsert: ({ rec }) => {
         const { pageX: px, pageY: py } = pageOffsetRef.current;
         return {
@@ -782,6 +1010,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     );
     lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
     lastRenderedThemeRef.current = normalizedMeta.theme;
+    rebuildHiddenSlotIds();
     renderTemplateSlotsToCanvas(
       canvas,
       getTemplatePack(normalizedMeta.templateId),
@@ -789,6 +1018,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       pageX,
       pageY,
       normalizedMeta.theme,
+      hiddenSlotIdsRef.current,
     );
     const ydocForSlots = ydocRef.current;
     const objectsMapForSlots = objectsMapRef.current;
@@ -826,13 +1056,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       }
       const single = canvas.getActiveObject() as unknown as { isEditing?: boolean };
       if (single?.isEditing) return;
-      const active = canvas.getActiveObjects();
-      active.forEach((obj: FabricObject) => {
-        if (isTemplateSlotFabricObject(obj)) return;
-        canvas.remove(obj);
-      });
-      canvas.discardActiveObject();
-      canvas.requestRenderAll();
+      removeSelectedLayoutRef.current();
     };
     window.addEventListener('keydown', onKeyDown);
 
@@ -841,7 +1065,11 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       binding.destroy();
       detachViewport();
     };
-  }, [resetSlotLayout]);
+
+    queueMicrotask(() => {
+      setDesignPanelTick((n) => n + 1);
+    });
+  }, [rebuildHiddenSlotIds]);
 
   useEffect(() => {
     if (yjsMountEpoch === 0) return;
@@ -863,18 +1091,29 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
             type="button"
             className={styles.btn}
             onClick={resetSlotLayout}
+            disabled={composeInProgress}
             title="Snap all template slots back to the designed layout (clears saved positions)"
           >
             Reset layout
           </button>
-          <button type="button" className={styles.btn} onClick={regenerate}>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={regenerate}
+            disabled={composeInProgress}
+          >
             Regenerate composition
           </button>
         </div>
       </header>
       <div className={styles.workbench}>
         <main className={`${styles.stage} ${styles.stageFabric}`}>
-          <div ref={canvasWrapRef} className={styles.fabricCanvasHost}>
+          <div
+            ref={canvasWrapRef}
+            className={styles.fabricCanvasHost}
+            onDragOver={onCanvasDragOver}
+            onDrop={onCanvasDrop}
+          >
             <FabricCanvas
               key={stableDocKey}
               className={styles.fabricCanvasElement}
@@ -888,44 +1127,82 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
           </div>
         </main>
         <aside className={styles.sidebar}>
-          <div className={styles.kv}>
-            <span>Template</span>
-            <strong>{templateId}</strong>
+          <div className={styles.sidebarTop}>
+            <div className={styles.kv}>
+              <span>Template</span>
+              <strong>{templateId}</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Theme</span>
+              <strong>{templateTheme}</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Pages</span>
+              <strong>1</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Status</span>
+              <strong>{templateStatus}</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Patch count</span>
+              <strong>{patchCount}</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Data source</span>
+              <strong>OpenAI compose-template</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Sync</span>
+              <strong>{isConnected ? 'connected' : 'connecting'}</strong>
+            </div>
+            <div className={styles.kv}>
+              <span>Canvas</span>
+              <strong>Wheel zoom · Alt+drag pan</strong>
+            </div>
+            <ComposeStreamTimeline
+              stages={stages}
+              streaming={templateStatus === 'streaming'}
+              composeFailed={templateStatus === 'error'}
+              statusText={statusText}
+            />
           </div>
-          <div className={styles.kv}>
-            <span>Theme</span>
-            <strong>{templateTheme}</strong>
+          <div className={styles.sidebarComponents}>
+            <div className={styles.section}>
+              <h3>Components</h3>
+              <p className={styles.note}>
+                Drag onto the canvas or click to add at the viewport center. Delete or Backspace removes
+                the selected palette item or generated template slot.
+              </p>
+              <div className={styles.paletteGrid}>
+                {DESIGN_PALETTE_ITEMS.map((item) => (
+                  <button
+                    key={item.kind}
+                    type="button"
+                    className={styles.paletteItem}
+                    disabled={composeInProgress}
+                    draggable={!composeInProgress}
+                    title={item.hint}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(DESIGN_DRAG_MIME, item.kind);
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    onClick={() => addDesignComponentAtCenter(item.kind)}
+                  >
+                    <span className={styles.paletteItemLabel}>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={styles.paletteDeleteBtn}
+                disabled={composeInProgress || !hasDeletableCanvasSelection}
+                onClick={deleteSelectedLayoutElements}
+              >
+                Delete selected
+              </button>
+            </div>
           </div>
-          <div className={styles.kv}>
-            <span>Pages</span>
-            <strong>1</strong>
-          </div>
-          <div className={styles.kv}>
-            <span>Status</span>
-            <strong>{templateStatus}</strong>
-          </div>
-          <div className={styles.kv}>
-            <span>Patch count</span>
-            <strong>{patchCount}</strong>
-          </div>
-          <div className={styles.kv}>
-            <span>Data source</span>
-            <strong>OpenAI compose-template</strong>
-          </div>
-          <div className={styles.kv}>
-            <span>Sync</span>
-            <strong>{isConnected ? 'connected' : 'connecting'}</strong>
-          </div>
-          <div className={styles.kv}>
-            <span>Canvas</span>
-            <strong>Wheel zoom · Alt+drag pan</strong>
-          </div>
-          <ComposeStreamTimeline
-            stages={stages}
-            streaming={templateStatus === 'streaming'}
-            composeFailed={templateStatus === 'error'}
-            statusText={statusText}
-          />
         </aside>
       </div>
     </div>

@@ -201,6 +201,16 @@
   box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.12);
 }
 
+.textarea:read-only {
+  cursor: default;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.textarea:read-only:focus {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+}
+
 .creatorBottomRow {
   display: flex;
   gap: 10px;
@@ -261,6 +271,19 @@
   outline: none;
   border-color: rgba(192, 132, 252, 0.55);
   box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.12);
+}
+
+.primaryBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.primaryBtn:disabled:hover,
+.primaryBtn:disabled:active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: none;
 }
 
 .btnIcon {
