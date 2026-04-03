@@ -1,176 +1,100 @@
-# Moda Canvas — Proof of Work
+# Moda Canvas — proof-of-work context
 
-## What Is This
+## What this is
 
-A collaborative AI canvas prototype built as a proof-of-work for the **Founding Engineer** role at [Moda](https://moda.app). Moda is an AI design agent with brand memory, backed by General Catalyst ($7.5M seed), building a collaborative canvas where AI agents produce brand-aligned, editable design output.
+A collaborative AI canvas prototype built as proof-of-work for the **Founding Engineer** role at [Moda](https://moda.app). Moda is an AI design agent with brand memory (General Catalyst seed), building a collaborative canvas where agents produce brand-aligned, editable output.
 
-This prototype demonstrates the three core engineering challenges Moda's product solves:
+This repository demonstrates three engineering themes:
 
-1. **Real-time collaborative canvas** — Multiple users editing simultaneously with conflict-free convergence
-2. **CRDT-based state management** — Using Yjs for production-grade distributed state (not naive last-write-wins)
-3. **AI-driven layout intelligence** — Natural language prompts that rearrange canvas elements via LLM reasoning
+1. **Real-time collaborative canvas** — Multiple users editing simultaneously with conflict-free convergence.
+2. **CRDT-based state** — **Yjs** for distributed document state (not naive last-write-wins over raw WebSockets).
+3. **AI manipulation of shared state** — Natural language drives layout (`/ai/layout`) or streaming template fills (`/ai/compose-template`), with server-side validation and writes into the **same** Yjs documents clients already sync.
 
-## Architecture Overview
+## Repository layout (actual)
 
-```
-moda-canvas/
-├── apps/
-│   ├── canvas-fe/          # Vite + React + Fabric.js + Yjs
-│   └── canvas-be/          # Node.js + Express + y-websocket + OpenAI API
-├── libs/
-│   ├── shared-types/       # CanvasElement, AILayoutRequest, AILayoutResponse
-│   ├── shared-prompts/     # LLM system prompt templates
-│   └── shared-utils/       # Zod validation, serialization helpers
-├── CONTEXT.md              # This file
-└── nx.json                 # Nx workspace config
-```
-
-### Data Flow
+This monorepo uses **pnpm** workspaces, not the older `apps/` + `libs/` sketch:
 
 ```
-User prompt → canvas-fe serializes Yjs doc to JSON
-  → POST /ai/layout to canvas-be
-  → canvas-be calls OpenAI API with elements + instruction
-  → OpenAI returns new {id, x, y} coordinates
-  → canvas-be writes new positions into Yjs document
-  → y-websocket broadcasts CRDT update to all clients
-  → canvas-fe animates elements to new positions (Fabric.js animate, 300ms)
+packages/frontend   — Vite, React, Fabric.js, Yjs client, template editor UI
+packages/backend    — Node, Express, ws, y-websocket, OpenAI, in-memory Yjs persistence
+doc/                — Architecture (Mermaid) and concept guides (see root README)
 ```
 
-### Why These Technology Choices
+Shared contracts are defined **per package** (`packages/frontend/src/types`, `packages/backend/src/types`, Zod schemas); align changes manually or introduce a shared package later.
 
-**Yjs (not raw WebSocket state passing):**
-Raw WebSocket diffing creates last-write-wins race conditions under real concurrency. Yjs is a CRDT library used by Notion, Jupyter, and Hocuspocus. When the AI returns new positions, those writes participate in the same CRDT merge as human edits — single source of truth with zero custom conflict resolution.
+## Design / template mode — principles
 
-**Fabric.js (not Konva):**
-Native JSON serialization with `canvas.toJSON()` / `canvas.loadFromJSON()`. This is critical for the AI pipeline — we serialize full canvas state to send to the LLM. Fabric also has a richer object model (grouping, clipping, transformation matrices) that maps to how design tools work.
+**Guiding rule:** In design mode, **geometry comes from templates**, not from the model. The model supplies **semantic content** (`TemplateFields`); layout is **deterministic** from `TemplateSchema` slots.
 
-**Separate Express + y-websocket (not Next.js):**
-WebSocket connections need a long-lived process. Next.js API routes on Vercel are serverless (spin up/die per request), which is fundamentally incompatible with persistent WebSocket state. The server holds both REST endpoints and WebSocket connections in the same process.
+- **Template pack** — `templateId`, page size, and **slots** (bounds, type, `maxChars` / `maxLines`, overflow). Registered in frontend pack modules and validated on the backend.
+- **Template fields** — Shared copy-shaped model (hero, logos, steps, math, final CTA, etc.), held in Yjs and patched by the compose stream.
+- **Streaming** — `POST /ai/compose-template` emits **NDJSON**: `template_selected` → `field_patch` → `complete` / `error`. Invalid patches are rejected; `stream` map entries like `op:<opId>` enforce idempotency.
 
-**OpenAI API for layout reasoning:**
-The LLM receives canvas state as a flat JSON array of elements and a natural language instruction. It returns new coordinates. The system prompt constrains output to strict JSON. We validate the response with Zod before writing to the CRDT.
+Phases from the original plan (**mock stream → real LLM**) are reflected in the codebase: same contracts for mock and live compose; backend validates and streams structured events.
 
-## Shared Types Contract
+## Template canvas (Fabric)
 
-These are the core interfaces in `shared-types` that both apps import:
+The design editor uses a **Fabric**-based template surface (`TemplateCanvasShell` and related layout/render code) so slots are canvas objects: compose updates **field** maps in Yjs; optional **object** records sync drags/resizes where wired. Reused building blocks include `bindYjsToFabric` patterns, `fabricRecords`, `slotToFabricObject`, template packs, and `composeTemplateClient` — **no duplicate backend** for compose.
 
-```typescript
-// The atomic unit on the canvas
-interface CanvasElement {
-  id: string;
-  type: 'rect' | 'text' | 'circle' | 'image';
-  label: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fill: string;
-  rotation: number;
-  zIndex: number;
-}
+For file-level entry points, see [doc/architecture.md](doc/architecture.md) and [README.md](README.md).
 
-// What we send to the AI endpoint
-interface AILayoutRequest {
-  elements: CanvasElement[];
-  instruction: string; // Natural language: "arrange in a 2x2 grid"
-  canvasWidth: number;
-  canvasHeight: number;
-}
+## Template packs — roadmap (condensed)
 
-// What the model returns (validated by Zod)
-interface AILayoutResponse {
-  elements: Array<{
-    id: string;
-    x: number;
-    y: number;
-    width?: number; // Optional resize
-    height?: number;
-  }>;
-  reasoning?: string; // Optional explanation of layout logic
-}
-```
+**Goal:** Many packs registered by `templateId`; each compose request sends an allowlist (`templateCandidates`); the LLM picks one id from that list and fills fields; layout stays code-defined.
 
-## Day-by-Day Build Plan
+**Suggested order of work**
 
-### Day 1: Canvas + Collaborative Sync
+1. **Registry (frontend)** — Extend `TemplateId`, add pack modules, `getTemplatePack(id)`, editor reads pack from meta (not a single hardcoded pack).
+2. **API (backend)** — Expand Zod enums for ids/themes; keep candidates typed; repair JSON schema must not invent unknown ids.
+3. **Pack policy** — Per-pack (or per-family) completeness / gap-fill (`templatePackPolicy`-style) instead of only landing-shaped assumptions.
+4. **Prompts + client** — Candidate hints in prompts; UI and API share the same allowlist.
+5. **Tests + docs** — Registry, meta parsing, stream fixtures; “adding a pack” checklist in repo docs.
 
-**Morning — Canvas foundation:**
+**Field model:** Prefer a **single shared `TemplateFields`** (Option A) until a pack needs different keys; then consider per-pack discriminated unions (Option B). See `packages/backend/src/utils/templatePackPolicy.ts`.
 
-- Fabric.js canvas component with responsive sizing
-- Toolbar: add rectangle, add text, add circle, color picker
-- Drag, resize, select, multi-select, delete
-- Canvas state serialization to CanvasElement[] using shared-types
+**Risks:** Unknown `templateId` in old Yjs docs (default/fallback pack), drift between frontend ids and backend `z.enum` (document both sides or generate from one source).
 
-**Afternoon — Yjs integration:**
+Follow-up implementation ideas may also be listed in [docs/TEMPLATE-COMPOSE-FUTURE-TODO.md](docs/TEMPLATE-COMPOSE-FUTURE-TODO.md).
 
-- y-websocket server in canvas-be (attached to same HTTP server as Express)
-- Yjs document with Y.Map for each canvas element
-- Bind Fabric.js events (object:moving, object:scaling) → Yjs updates
-- Bind Yjs observe callbacks → Fabric.js object mutations
-- Presence cursors via Yjs awareness protocol
-- **Verify:** Two browser tabs with synced canvas + live cursor presence
+## Production-quality template rendering (direction)
 
-### Day 2: AI Layout Engine
+Target: generated pages feel **production-ready** while the LLM only chooses template + fills fields.
 
-**Morning — Backend:**
+- **Componentized Fabric** — Semantic paths in `slotToFabricObject` (e.g. KPI card, nav item, quote panel) driven by **design tokens** (type ramp, spacing, radius, color roles).
+- **Schema evolution** — Optional section-aware layouts with slot fallback for migration.
+- **Overflow** — Per-slot or per-component policies (ellipsis, clamp, compact variants).
 
-- Express route: POST /ai/layout in canvas-be
-- Canvas state serializer: Yjs doc → CanvasElement[] (using shared-utils)
-- OpenAI API integration using the OpenAI SDK
-- System prompt from shared-prompts
-- Zod validation of the model’s JSON response (using shared-utils)
+Rules of thumb: change **tokens/components** before ad-hoc geometry; every new template documents hierarchy, tokens, overflow, and low-priority removable elements.
 
-**Afternoon — Integration:**
-
-- Write validated positions back into Yjs document on server
-- Client detects bulk position changes, triggers Fabric.js animate() (300ms ease)
-- PromptBar component with submit and Cmd+Enter shortcut
-- Loading state: pulsing canvas border while AI processes
-- **Verify:** Type "arrange in a grid" → elements slide into position on all clients
-
-### Day 3: Polish + Deploy
-
-**Morning — UX:**
-
-- Yjs UndoManager for collaborative undo/redo (Ctrl+Z)
-- Element labels and color customization
-- Error handling: API failures, disconnect recovery, invalid AI output
-- Toast notifications for connection status
-
-**Afternoon — Ship:**
-
-- Deploy canvas-fe to Vercel
-- Deploy canvas-be to Railway (long-lived process for WebSockets)
-- README with architecture decisions and setup instructions
-- 60-second demo video: multi-user + AI layout
-- Cold outreach message to John Holliman (CTO) with repo link
-
-## LLM Prompt Strategy
-
-The system prompt in `shared-prompts` follows this structure:
+## End-to-end data flow (canvas AI layout)
 
 ```
-System: You are a layout engine for a collaborative design canvas.
-You receive canvas elements as JSON and a user instruction.
-Return ONLY a JSON array of {id, x, y} for repositioned elements.
-Keep elements within the canvas bounds (width: {canvasWidth}, height: {canvasHeight}).
-Maintain 20px minimum padding from edges.
-Do not add or remove elements — only reposition existing ones.
-
-User: Elements: [{id, type, label, x, y, width, height}, ...]
-Canvas: {width}x{height}
-Instruction: "{user's natural language prompt}"
+User prompt → frontend builds element snapshot
+  → POST /ai/layout
+  → backend calls OpenAI, validates with Zod
+  → backend writes moves/creates into the room’s Yjs map (via server Y.Doc)
+  → y-websocket broadcasts CRDT updates
+  → clients apply to Fabric (bulk updates may animate)
 ```
 
-## Conversation Talking Points (for CTO interview)
+## Technology choices (why)
 
-- **Why Yjs over raw WebSocket diffing** — Conflict-free convergence, AI writes participate in same CRDT merge
-- **Why Fabric.js over Konva** — Native JSON serialization critical for LLM pipeline
-- **Why server calls LLM (not client)** — API key security, single sync channel, output validation
-- **How this maps to Moda** — Same three-layer problem: canvas rendering → collaborative state → AI manipulation
-- **How collaborative undo works** — Yjs UndoManager gives per-user undo stacks that compose correctly
+- **Yjs** — CRDT merges concurrent human and AI edits; single source of truth.
+- **Fabric.js** — Rich object model and serialization paths suited to canvas tooling and AI snapshots.
+- **Express + long-lived WebSocket server** — Same process holds REST and `/yjs`; avoids serverless limitations for persistent sync.
+- **OpenAI on the server** — Protects API keys; validates output before touching Yjs.
 
-## Outreach Target
+## LLM layout prompt strategy (summary)
 
-**John Holliman** — Co-Founder & CTO at Moda. Low public presence, LinkedIn is primary channel. Was employee #1 at Dover (Anvisha's previous company). Reach out with repo link + 2-line message referencing the Founding Engineer role.
+The layout service sends structured canvas JSON plus the user instruction; the model returns a constrained plan (moves/creates). **Zod** validates before application. Optional **conversation history** per room (`conversationStore`) supports multi-turn layout. Exact prompt text lives in backend services/prompts.
+
+## Interview talking points
+
+- Yjs vs raw WebSocket state — convergence and AI writes on the same CRDT.
+- Fabric vs lighter canvas libs — object model and serialization for LLM pipelines.
+- Server-side LLM — keys, validation, single sync path into Yjs.
+- Mapping to Moda — render surface + collaborative doc + agentic edits.
+
+## Outreach reference
+
+**John Holliman** — Co-Founder & CTO at Moda. LinkedIn is a practical channel; short message with repo link and role reference.

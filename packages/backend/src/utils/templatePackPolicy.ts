@@ -11,7 +11,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Option A (CONTEXT-template-packs): all registered packs share the same `TemplateFields` shape,
+ * Option A (see CONTEXT.md — Template packs roadmap): all registered packs share the same `TemplateFields` shape,
  * so completeness rules match the landing baseline. Pitch packs differ only in slot layout on the client.
  */
 const SHARED_LANDING_FAMILY_POLICY: TemplatePackFieldPolicy = {

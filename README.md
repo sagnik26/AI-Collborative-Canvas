@@ -1,130 +1,412 @@
 # AI Collaborative Canvas
 
-## What is the project?
+Real-time collaborative canvas and AI-assisted design prototype: **Fabric.js** editing, **Yjs** CRDT sync over WebSocket, and **OpenAI** integration for canvas layout (`/ai/layout`) and streaming template composition (`/ai/compose-template`). The server applies AI output into the same Yjs documents clients already share.
 
-AI Collaborative Canvas is a local-first collaborative drawing + document composition playground:
+**License:** MIT · **Package manager:** pnpm workspaces
 
-- **Canvas**: a Figma/Excalidraw-like editor powered by **Fabric.js**, synchronized in real-time via **Yjs** over **WebSocket**.
-- **AI layout**: send the current canvas state + an instruction to the backend; the backend asks **OpenAI** for a layout plan and applies changes back into the shared Yjs document.
-- **Template composition**: a “template editor” that streams incremental field patches from OpenAI (NDJSON) and applies them into a shared Yjs doc so multiple clients see the same evolving document.
+---
 
-This is a **pnpm workspace monorepo** with separate `frontend` (React/Vite) and `backend` (Express + WS) packages.
+<!-- Explicit <h2 id> so TOC fragments work in GitHub, VS Code, and Cursor previews (auto-slugs differ). -->
+<h2 id="table-of-contents">Table of contents</h2>
 
-## Codebase Structure and patterns
+1. [Overview](#overview)
+2. [Features](#features)
+3. [Technology stack](#technology-stack)
+4. [Architecture](#architecture)
+5. [Data flows and contracts](#data-flows-and-contracts)
+6. [Collaboration and Yjs](#collaboration-and-yjs)
+7. [Canvas and Fabric binding](#canvas-and-fabric-binding)
+8. [Template domain](#template-domain)
+9. [HTTP APIs and AI pipelines](#http-apis-and-ai-pipelines)
+10. [Project structure](#project-structure)
+11. [Repository conventions](#repository-conventions)
+12. [Getting started](#getting-started)
+13. [Configuration](#configuration)
+14. [Scripts](#scripts)
+15. [Routing and document rooms](#routing-and-document-rooms)
+16. [Key file index](#key-file-index)
+17. [Operations and limitations](#operations-and-limitations)
+18. [Terminology](#terminology)
+19. [Further reading](#further-reading)
 
-### Top-level
+---
 
-- **`package.json`**: workspace scripts (run frontend+backend together, build, typecheck, formatting).
-- **`pnpm-workspace.yaml`**: declares `packages/*`.
-- **`packages/`**: product code (frontend + backend).
-- **`scripts/`**: repo-level scripts (e.g. shared dependency checks).
+<h2 id="overview">Overview</h2>
 
-### Frontend (`packages/frontend`)
+This monorepo contains:
 
-- **Entry**: `src/main.tsx` → `src/App.tsx`
-- **Routes/pages**: `src/pages/*`
-- **UI components**: `src/components/*`
-- **Reusable logic (non-React)**: `src/libs/*`
-  - `src/libs/canvas/*`: Fabric ↔ Yjs binding, factories, viewport utilities
-  - `src/libs/ai/*`: client that calls backend AI endpoints
-  - `src/libs/template/*`: template contracts, streaming client, rendering helpers
-- **Types**: `src/types/*`
-- **Constants**: `src/constants/*`
+- **`packages/frontend`** — Vite + React SPA: collaborative canvas, design/template editor, Fabric rendering, Yjs client (`WebsocketProvider`), fetch clients for REST and NDJSON streams.
+- **`packages/backend`** — Single Node process: Express (REST), `ws` + `y-websocket` on `/yjs`, OpenAI services, Zod validation, in-memory persistence of Yjs state.
 
-Pattern-wise:
+There are **no cross-package TypeScript imports**; HTTP and WebSocket payloads are the contract between frontend and backend (types duplicated per package).
 
-- **React components stay “thin”**: orchestration + UI in `components/`, pure logic in `libs/`.
-- **Shared state is Yjs**: bindings write local edits into Yjs; remote updates rehydrate the Fabric canvas / template state.
-- **Backend URLs are currently hard-coded** to `http://localhost:4000` and `ws://localhost:4000` in shells (easy to env-ify later).
+---
 
-### Backend (`packages/backend`)
+<h2 id="features">Features</h2>
 
-- **Entry**: `src/index.ts`
-- **HTTP transport**: `src/transport/http/*` (Express app + route registration)
-- **WS transport**: `src/transport/ws/*` (attaches `/yjs` WebSocket server)
-- **Controllers**: `src/controllers/*` (request handlers)
-- **Services**: `src/services/*` (OpenAI calls, Yjs apply logic, collab wiring)
-- **Repositories**: `src/repositories/*` (persistence abstractions/impl; currently in-memory)
-- **Schemas/types**: `src/schemas/*`, `src/types/*` (Zod validation + contracts)
+| Area | Description |
+|------|-------------|
+| **Collaborative canvas** (`/canvas`) | Fabric scene synced via `Y.Map<string, CanvasObjectRecord>`; local edits serialize to Yjs; remote updates rehydrate Fabric (bulk updates can animate). |
+| **AI layout** | User instruction + canvas snapshot → `POST /ai/layout` → OpenAI → server writes moves/creates into the live server `Y.Doc` → all tabs converge over `/yjs`. |
+| **Design flow** (`/design`) | Prompt entry, optional template candidate narrowing via chips, navigation to editor with `docId`. |
+| **Template composition** (`/design/editor`) | NDJSON stream fills `TemplateFields` and `TemplateMeta` in Yjs; deterministic slot layout from `TemplateSchema`; Fabric/template shells (`TemplateCanvasShell`, `TemplateEditorShell`) and design tokens. |
+| **Visual regression** (`/design/visual-regression`) | Exercises template rendering for visual checks. |
+| **Persistence** | `YjsPersistenceRepository` + `InMemoryDocRepository`: load/save `encodeStateAsUpdate` per doc name (non-durable across backend restart). |
 
-Pattern-wise:
+---
 
-- **Controllers validate and translate**: Zod schema parse → call service → map to response.
-- **Services hold the behavior**: OpenAI prompting + result parsing, “apply to Yjs doc”, etc.
-- **Transport is thin**: Express/WS wiring lives under `transport/`.
+<h2 id="technology-stack">Technology stack</h2>
 
-## Project Architecture
+| Layer | Choices |
+|-------|---------|
+| **Monorepo** | pnpm workspaces (`pnpm-workspace.yaml`); Nx listed as optional tooling in root devDependencies. |
+| **Frontend** | React 19, Vite, React Router, Fabric.js, Yjs, `y-websocket` client. **ESM**; local imports often use explicit `.ts`/`.tsx` extensions. |
+| **Backend** | Node, Express, `ws`, `y-websocket` server utils, OpenAI SDK, Zod, `dotenv`. |
+| **Styling** | CSS modules alongside shell components. |
 
-### Moving parts
+---
 
-- **Web app (frontend)**: React + Vite UI that hosts:
-  - a **Fabric.js** canvas editor (`/canvas`)
-  - a **template editor** that renders a one-page layout and keeps it in sync (`/design/editor`)
-- **API + realtime server (backend)**: Node/Express for HTTP APIs plus a WebSocket endpoint for Yjs.
-- **Realtime sync (Yjs + y-websocket)**: shared documents (“rooms”) synchronized over WebSocket at `ws://localhost:4000/yjs`.
-- **AI provider (OpenAI)**: backend-only calls that produce either a layout plan or streaming template patches.
+<h2 id="architecture">Architecture</h2>
 
-### Network endpoints (local)
+### System context
 
-- **HTTP**
-  - `GET /health`
-  - `POST /ai/layout` (JSON request/response)
-  - `POST /ai/compose-template` (NDJSON streaming response)
-- **WebSocket**
-  - `ws://localhost:4000/yjs` (Yjs rooms, e.g. `yjs?doc=default`)
+```mermaid
+flowchart LR
+  subgraph clients [Browsers]
+    FE[React SPA]
+  end
+  subgraph server [Node server]
+    HTTP[Express REST]
+    WS[WebSocket /yjs]
+    AI[OpenAI integration]
+    MEM[(In-memory Yjs persistence)]
+  end
+  OAI[OpenAI API]
 
-### Collaboration model
+  FE -->|HTTP| HTTP
+  FE -->|Yjs sync| WS
+  HTTP --> AI
+  AI --> OAI
+  WS --> MEM
+```
 
-- **Source of truth**: a Yjs document per “room/doc”.
-- **Clients**: each browser connects to the same room and updates the Yjs maps.
-- **Conflict handling**: Yjs CRDT merges concurrent edits automatically; all clients converge.
+### Logical containers
 
-### Data flow: canvas collaboration
+```mermaid
+flowchart TB
+  subgraph repo [ai-collaborative-canvas]
+    ROOT[Root tooling: pnpm, Nx, Prettier]
+    FE[packages/frontend — Vite React]
+    BE[packages/backend — Express + ws]
+  end
+  ROOT --> FE
+  ROOT --> BE
+```
 
-- Local Fabric edits are serialized into a Yjs `Y.Map` of object records (stable ids → record).
-- Remote Yjs updates are observed and applied back onto the Fabric canvas (bulk updates are animated for UX).
+| Container | Technology | Responsibility |
+|-----------|------------|----------------|
+| Frontend | Vite, React, Fabric.js, Yjs client | UI, canvas editing, template preview, REST + NDJSON clients |
+| Backend | Node, Express, ws, y-websocket | REST APIs, WebSocket sync, OpenAI, ephemeral Yjs storage |
 
-### Data flow: AI layout (canvas)
+### Backend layering
 
-- Frontend sends a compact snapshot of the canvas (elements + dimensions) to `POST /ai/layout`.
-- Backend calls OpenAI and receives a JSON plan:
-  - **moves**: updates for existing element positions/sizes
-  - **creates**: new elements to add
-- Backend applies the plan into the shared Yjs doc; all connected clients receive it via realtime sync.
+```mermaid
+flowchart TB
+  INDEX[index.ts]
+  HTTP[transport/http — createApp, routes]
+  WST[transport/ws — attachYjsWebsocket]
+  CTRL[controllers]
+  SVC[services]
+  REPO[repositories]
+  INDEX --> HTTP
+  INDEX --> WST
+  INDEX --> REPO
+  HTTP --> CTRL
+  WST --> CTRL
+  CTRL --> SVC
+  SVC --> REPO
+```
 
-### Data flow: template composition (streaming)
+**Dependency direction:** `transport → controllers → services → (repositories, utils, OpenAI SDK)`. Controllers adapt Express `Request`/`Response` to plain inputs; keep transport types out of core services where possible.
 
-- Frontend starts a “compose” run and calls `POST /ai/compose-template`.
-- Backend streams **NDJSON** events (e.g. `template_selected`, `field_patch`, `complete`).
-- Frontend validates and applies each patch into Yjs maps so collaborators see the same incremental updates.
+**Entrypoint (`packages/backend/src/index.ts`):** loads env, creates `http.Server`, `setPersistence` with `YjsPersistenceRepository`, `YjsCollabService`, attaches WebSocket on `/yjs`, listens on `PORT`.
 
-## Quick Start in local
+### Frontend composition
 
-### Prereqs
+```mermaid
+flowchart TB
+  APP[App.tsx routes]
+  PAGES[pages/*]
+  SHELLS[components/*Shell]
+  LIBS[libs/canvas, libs/template, libs/ai]
+  TYPES[types/*]
+  APP --> PAGES
+  PAGES --> SHELLS
+  SHELLS --> LIBS
+  LIBS --> TYPES
+```
 
-- **Node.js** (recent LTS recommended)
+**State:** collaborative state lives in **Yjs**; local UI uses React state/refs (tools, selection, loading, layout scale).
+
+### Collaborative canvas (structural)
+
+The canvas treats **`Y.Map` of `CanvasObjectRecord`** as source of truth; Fabric is the view.
+
+```mermaid
+flowchart LR
+  FAB[Fabric canvas]
+  BIND[bindFabricCanvasToYMap]
+  YMAP[Y.Map objects]
+  PROV[WebsocketProvider]
+  FAB <--> BIND
+  BIND <--> YMAP
+  YMAP <--> PROV
+```
+
+### Template editor (structural)
+
+Template collaboration uses **three maps** for metadata, field content, and stream idempotency:
+
+```mermaid
+flowchart TB
+  subgraph YDoc [Y.Doc template room]
+    META[Y.Map meta]
+    FIELDS[Y.Map fields]
+    STREAM[Y.Map stream]
+  end
+  TE[TemplateEditorShell / TemplateCanvasShell]
+  REN[renderTemplate / slotToFabricObject]
+  TE <--> META
+  TE <--> FIELDS
+  TE <--> STREAM
+  FIELDS --> REN
+  META --> REN
+```
+
+---
+
+<h2 id="data-flows-and-contracts">Data flows and contracts</h2>
+
+### Canvas AI layout sequence
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant FE as CanvasShell / aiLayoutClient
+  participant API as POST /ai/layout
+  participant OAI as OpenAiLayoutService
+  participant YAP as YjsCanvasApplyService
+  participant Y as Server Y.Doc
+  participant Peer as Other clients
+
+  U->>FE: Instruction + submit
+  FE->>API: elements, canvas size, room/doc ids
+  API->>OAI: model call + validation
+  OAI-->>API: moves + creates
+  API->>YAP: applyLayout(docName, mapName, ...)
+  YAP->>Y: transact: set map entries
+  Y-->>Peer: CRDT updates via /yjs
+  Y-->>FE: CRDT updates via /yjs
+  FE->>FE: bindYjs observes map → Fabric animate/apply
+```
+
+**Principle:** The model does not push pixels to the browser; it mutates the **same CRDT** every client shares, so AI and human edits merge uniformly.
+
+### Template compose streaming sequence
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant TE as Template editor shell
+  participant API as POST /ai/compose-template
+  participant SVC as OpenAiTemplateComposeService
+  participant OAI as OpenAI
+
+  U->>TE: Start compose
+  TE->>API: NDJSON request body
+  API->>SVC: composeStream()
+  loop Each event
+    SVC->>OAI: model stream / structured output
+    OAI-->>SVC: tokens / JSON
+    SVC-->>API: write JSON line + flush
+    API-->>TE: line
+    TE->>TE: parse + validateTemplatePatch
+    TE->>TE: ydoc.transact → meta/fields/stream
+  end
+  SVC-->>API: complete event
+  API-->>TE: line
+```
+
+### Yjs persistence lifecycle (server)
+
+```mermaid
+sequenceDiagram
+  participant C as Client Y.Doc
+  participant WS as y-websocket server
+  participant P as YjsPersistenceRepository
+  participant R as InMemoryDocRepository
+
+  Note over WS: New room / first connection
+  WS->>P: bindState(docName, ydoc)
+  P->>R: load(docName)
+  R-->>P: bytes or null
+  P->>C: applyUpdate if bytes exist
+  Note over C: User edits
+  C-->>WS: CRDT update messages
+  WS->>P: on ydoc update
+  P->>R: save(docName, encodeStateAsUpdate)
+```
+
+### Wire artifacts
+
+| Artifact | Direction | Format |
+|----------|-----------|--------|
+| Yjs updates | Client ↔ Server | Binary CRDT over WebSocket |
+| AI layout request | Client → Server | JSON (`aiLayoutRequestSchema`) |
+| AI layout response | Server → Client | JSON (validated plan; **also applied server-side**) |
+| Template compose request | Client → Server | JSON (`templateComposeRequestSchema`) |
+| Template compose response | Server → Client | NDJSON (`application/x-ndjson`) |
+| Persisted document | Server ↔ Memory | `Uint8Array` per doc name via `encodeStateAsUpdate` |
+
+---
+
+<h2 id="collaboration-and-yjs">Collaboration and Yjs</h2>
+
+| Concept | Detail |
+|---------|--------|
+| **CRDT** | Conflict-free replicated data; concurrent edits merge without custom last-write-wins for map updates. |
+| **`Y.Doc`** | Root document; emits binary updates. Client: `new Y.Doc()` in `bindYjsToFabricCanvas`; server: one doc per room via `y-websocket`. |
+| **`Y.Map`** | Canvas: keys = stable object ids, values = `CanvasObjectRecord`. Template: `meta`, `fields`, `stream` maps. |
+| **Room / doc name** | Query `?doc=` on `ws://host/yjs`. `YjsCollabService.getDocName` reads it (default `default`). Must match AI layout `doc` field. |
+| **`y-websocket`** | Client: `WebsocketProvider`. Server: `setupWSConnection`; `setPersistence` registers load/save. |
+| **`getYDoc(docName)`** | Server registry of live `Y.Doc`s. `YjsCanvasApplyService` uses it so **server-side AI layout** mutates the document clients sync. |
+| **`ydoc.transact`** | Batches mutations (AI apply, template patches, compose reset). |
+| **Sync event** | When `WebsocketProvider` reports synced, canvas binding runs `applyFromYjs` to reconcile. |
+| **Template idempotency** | `stream` map stores `op:<opId>` so duplicate NDJSON events are not applied twice. Stage completion uses `done:<stageId>`. |
+
+---
+
+<h2 id="canvas-and-fabric-binding">Canvas and Fabric binding</h2>
+
+| Item | Detail |
+|------|--------|
+| **Fabric.js** | `FabricObject` with events (`object:moving`, `object:scaling`, `text:changed`, …) driving Yjs upserts. |
+| **Stable ids** | `fabricRecords.ts` helpers read/write ids used as `Y.Map` keys (including grouped selection targets). |
+| **`CanvasObjectRecord`** | `kind`, `left`/`top`, `scaleX`/`scaleY`, `angle`, optional `fill`, `text`, line/table payloads; optional `coordSpace: 'page'` for template page coordinates (`packages/frontend/src/types/canvas.ts`). |
+| **`bindFabricCanvasToYMap`** | Bidirectional bind: remote walk creates/updates/removes Fabric objects; local events upsert/delete map entries; optional `shouldPreserveObject` for non-synced template chrome; bulk remote changes can **animate** position. |
+| **`bindYjsToFabricCanvas`** | Creates `Y.Doc` + `WebsocketProvider` + default `objects` map + `bindFabricCanvasToYMap`. |
+| **Factories / viewport** | `fabricFactories.ts`, `viewport.ts` (keep content in view after resize or AI moves). |
+| **Templates on Fabric** | `renderTemplate`, `templateCanvasFabric`, `slotToFabricObject` (`Design System/`) bridge slots + fields to Fabric; selective sync for some ids. |
+
+---
+
+<h2 id="template-domain">Template domain</h2>
+
+| Concept | Detail |
+|---------|--------|
+| **Template pack** | `TemplateSchema`: `templateId`, page size, `slots[]`; registered in `templatePacks.ts`, `templatePackV1.ts`, constants. |
+| **`TemplateId` / `TemplateTheme`** | Allowlisted ids and themes (`templateRegistry`); enforced in UI, client stream parser, and backend Zod/policy. |
+| **Slot** | Typed region (`text`, `pill`, `box`, `connector`, `logo`, `cta`), geometry, `maxChars` / `maxLines` / `overflow`, optional `componentKind`. |
+| **`TemplateFields`** | Single shared field shape across packs (hero, logos, steps, math, final CTA, …); AI streams partial updates. |
+| **`TemplateMeta`** | `templateId`, `theme`, `status` (`idle` \| `streaming` \| `complete` \| `error`), `schemaVersion`. |
+| **`TemplatePatch`** | `opId`, `stage` (`meta_header`, `steps`, `math`, `complete`), optional `meta` / `fields`; validated by `validateTemplatePatch` (`contracts.ts`). |
+| **Rendering** | `renderTemplate` / `renderTemplateWithDiagnostics` → `CanvasObjectRecord[]` + diagnostics; tokens in `templateDesignTokens.ts`, `templateLandingPalettes.ts`. |
+| **Shells** | `DesignShell` (chips, `docId`, candidates). `TemplateEditorShell` (Yjs + compose + HTML-style preview path). `TemplateCanvasShell` (Fabric-first + viewport helpers). |
+| **`docId`** | Client-generated; `?doc=` for shared template sessions. |
+| **Fallbacks / mock** | `templateFieldFallbacks.ts`, `mockStream.ts` for offline-ish demos. |
+| **Backend policy** | `templatePackPolicy`, `templateThemeRotation` constrain model selection to allowed packs/themes. |
+
+---
+
+<h2 id="http-apis-and-ai-pipelines">HTTP APIs and AI pipelines</h2>
+
+### Routes
+
+| Method | Path | Role |
+|--------|------|------|
+| `GET` | `/health` | Liveness |
+| `POST` | `/ai/layout` | OpenAI layout plan; **server applies** to Yjs |
+| `POST` | `/ai/compose-template` | **NDJSON** template compose stream |
+
+**Express:** `createApp` — CORS, `express.json()`, `registerRoutes` (`packages/backend/src/transport/http/`).
+
+### AI layout (step-by-step)
+
+1. Client builds `AiLayoutElement[]` via `buildAiLayoutElementsFromCanvas` (Fabric + Yjs records).
+2. `POST /ai/layout` with instruction, canvas size, `doc`, `mapName`, `roomId`, elements.
+3. Optional **conversation history** per `roomId` from `conversationStore`.
+4. `OpenAiLayoutService` → OpenAI → Zod-validated result.
+5. `YjsCanvasApplyService.applyLayout`: **moves** patch `left`/`top` on existing keys; **creates** add new ids + records inside `ydoc.transact`.
+6. All clients receive updates on `/yjs`; Fabric binding animates when many keys change.
+
+### Template compose (step-by-step)
+
+1. `streamTemplateCompose` → `fetch` `/ai/compose-template` with `prompt`, `templateCandidates`, optional `themeHint`, `brandHints`.
+2. Response: `application/x-ndjson`, flush-friendly headers, `AbortController` on disconnect.
+3. Client: `ReadableStream` + line split + JSON parse per line.
+4. Events: `template_selected`, `field_patch`, `complete`, `error` (`TemplateComposeEvent`).
+5. Valid patches applied in `ydoc.transact` to `meta` / `fields` / `stream` with `validateTemplatePatch`.
+
+**NDJSON:** one JSON object per line — incremental UX and proxy-friendly flushing.
+
+**Secrets:** OpenAI key from env or `Authorization: Bearer` (`openAiAuth.ts`); keys never ship to the browser for these flows.
+
+---
+
+<h2 id="project-structure">Project structure</h2>
+
+```
+ai-collaborative-canvas/
+├── package.json
+├── pnpm-workspace.yaml
+├── CONTEXT.md                 # Product / roadmap context (Moda PoW, template roadmap)
+├── doc/                       # Split mirrors: architecture.md, concepts/*.md (optional deep dives)
+├── docs/                      # Legacy feature notes (e.g. template sync, compose TODO)
+├── scripts/
+└── packages/
+    ├── frontend/
+    │   └── src/
+    │       ├── main.tsx, App.tsx
+    │       ├── pages/
+    │       ├── components/     # Shells, FabricCanvas, PromptBar, …
+    │       ├── libs/canvas/, libs/template/, libs/ai/
+    │       ├── Design System/  # Tokens, slotToFabricObject, palettes
+    │       ├── types/, constants/
+    │       └── assets/, *.css
+    └── backend/
+        └── src/
+            ├── index.ts
+            ├── transport/http/, transport/ws/
+            ├── controllers/
+            ├── services/
+            ├── repositories/
+            ├── schemas/, types/
+            ├── prompts/, utils/, constants/
+```
+
+---
+
+<h2 id="repository-conventions">Repository conventions</h2>
+
+- **Thin React shells** — Orchestration in `components/`; logic in `libs/`.
+- **No frontend↔backend deep imports** — Align types manually or introduce a future shared package.
+- **Zod at HTTP boundary** — `packages/backend/src/schemas/*`.
+- **Default API/WS URLs** — Hard-coded `http://localhost:4000` and `ws://localhost:4000` in shells (candidates for env-based config).
+
+---
+
+<h2 id="getting-started">Getting started</h2>
+
+### Prerequisites
+
+- **Node.js** (recent LTS)
 - **pnpm**
 
-### Install
+### Installation
 
 ```bash
 pnpm install
 ```
-
-### Configure environment
-
-Create `packages/backend/.env`:
-
-```bash
-OPENAI_API_KEY=your_key_here
-# optional
-# PORT=4000
-# OPENAI_MODEL=gpt-4o-mini
-```
-
-Notes:
-
-- Backend accepts an API key either from **`OPENAI_API_KEY`** or from an HTTP `Authorization: Bearer <key>` header.
 
 ### Run (frontend + backend)
 
@@ -132,16 +414,99 @@ Notes:
 pnpm dev
 ```
 
-- **Backend**: `http://localhost:4000` (WebSocket: `ws://localhost:4000/yjs`)
-- **Frontend**: Vite dev server (prints the URL in the terminal; usually `http://localhost:5173`)
+- Backend: `http://localhost:4000` — WebSocket: `ws://localhost:4000/yjs?doc=<room>`
+- Frontend: Vite prints the URL (commonly `http://localhost:5173`)
 
-### Useful scripts
+---
+
+<h2 id="configuration">Configuration</h2>
+
+Create **`packages/backend/.env`**:
 
 ```bash
-pnpm dev:frontend
-pnpm dev:backend
-pnpm build
-pnpm typecheck
-pnpm format:check
-pnpm format:fix
+OPENAI_API_KEY=your_key_here
+# Optional:
+# PORT=4000
+# OPENAI_MODEL=gpt-4o-mini
 ```
+
+The server accepts the API key from **`OPENAI_API_KEY`** or **`Authorization: Bearer <key>`** on requests.
+
+---
+
+<h2 id="scripts">Scripts</h2>
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Frontend + backend concurrently |
+| `pnpm dev:frontend` | Vite only |
+| `pnpm dev:backend` | Node server only |
+| `pnpm build` | Frontend production build + backend build |
+| `pnpm start` | Start backend (after build, per root `package.json`) |
+| `pnpm typecheck` | Frontend build (dev mode) + backend typecheck |
+| `pnpm format:check` / `pnpm format:fix` | Prettier |
+| `pnpm check:deps` | Shared dependency check script |
+| `pnpm find:process` | Lists process listening on TCP 4000 (local debugging) |
+
+---
+
+<h2 id="routing-and-document-rooms">Routing and document rooms</h2>
+
+| Feature | URL / param | Shared state |
+|---------|-------------|--------------|
+| Canvas | `/canvas`, WS `?doc=` | Same `doc` + map name for `/ai/layout` |
+| Template editor | `/design/editor?doc=` | Yjs room per `doc` |
+| Design entry | `/design` | Creates `docId`, passes prompt/candidates via navigation |
+
+---
+
+<h2 id="key-file-index">Key file index</h2>
+
+| Concern | Path |
+|---------|------|
+| Server boot | `packages/backend/src/index.ts` |
+| HTTP routes | `packages/backend/src/transport/http/routes.ts` |
+| Yjs WebSocket attach | `packages/backend/src/transport/ws/attachYjsWebsocket.ts` |
+| Canvas ↔ Yjs | `packages/frontend/src/libs/canvas/bindYjsToFabric.ts` |
+| Fabric records / ids | `packages/frontend/src/libs/canvas/fabricRecords.ts` |
+| AI layout client | `packages/frontend/src/libs/ai/aiLayoutClient.ts` |
+| Template compose client | `packages/frontend/src/libs/template/composeTemplateClient.ts` |
+| Template contracts | `packages/frontend/src/libs/template/contracts.ts` |
+| Template stream + Yjs | `packages/frontend/src/components/TemplateEditorShell.tsx` |
+| Template types | `packages/frontend/src/types/template.ts` |
+| Canvas types | `packages/frontend/src/types/canvas.ts` |
+
+---
+
+<h2 id="operations-and-limitations">Operations and limitations</h2>
+
+| Topic | Note |
+|-------|------|
+| **Persistence** | In-memory only; **backend restart drops** all Yjs documents unless you plug in durable storage. |
+| **OpenAI failures** | Layout: HTTP 500 JSON. Compose: `error` NDJSON line. |
+| **CORS** | Enabled in `createApp` for local dev; tighten for production. |
+| **Scalability** | Single-process design; horizontal scaling would need shared Yjs persistence and sticky sessions or CRDT sync hub. |
+
+---
+
+<h2 id="terminology">Terminology</h2>
+
+| Term | Meaning |
+|------|---------|
+| **CRDT** | Conflict-free replicated data type; Yjs implements maps/docs. |
+| **Room / doc name** | Yjs document id (WebSocket `?doc=`). |
+| **`CanvasObjectRecord`** | Serializable canvas object for `Y.Map` storage. |
+| **NDJSON** | Newline-delimited JSON stream for compose. |
+| **`op:<opId>`** | Idempotency marker in template `stream` map. |
+| **`getYDoc`** | Server-side access to the live `Y.Doc` for a room (AI apply). |
+| **`bindFabricCanvasToYMap`** | Low-level Fabric ↔ `Y.Map` sync. |
+| **`bindYjsToFabricCanvas`** | Full client setup: doc, provider, default `objects` map. |
+
+A longer A–Z list lives in [`doc/concepts/08-glossary.md`](doc/concepts/08-glossary.md).
+
+---
+
+<h2 id="further-reading">Further reading</h2>
+
+- **[CONTEXT.md](CONTEXT.md)** — Moda proof-of-work framing, template-mode principles, packs roadmap, production rendering direction.
+- **`doc/`** — Same architecture and concepts split into smaller files ([`doc/architecture.md`](doc/architecture.md), [`doc/concepts/README.md`](doc/concepts/README.md)) for focused edits and reviews.

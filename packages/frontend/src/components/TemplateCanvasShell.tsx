@@ -147,8 +147,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   const [templateId, setTemplateId] = useState<TemplateId>('landing.v1');
   const [templateTheme, setTemplateTheme] = useState(() => createDefaultTemplateMeta().theme);
   const [templateStatus, setTemplateStatus] = useState('idle');
-  const [patchCount, setPatchCount] = useState(0);
-  const [isConnected, setIsConnected] = useState(false);
   const [sharedPrompt, setSharedPrompt] = useState(props.initialPrompt ?? '');
   const [stages, setStages] = useState<StreamStage[]>(() =>
     STAGES.map((s) => ({ id: s.id, label: s.label, done: false })),
@@ -663,11 +661,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       setTemplateId(normalizedMeta.templateId);
       setTemplateTheme(normalizedMeta.theme);
       setTemplateStatus(normalizedMeta.status);
-      setPatchCount(
-        typeof metaMap.get('patchCount') === 'number'
-          ? (metaMap.get('patchCount') as number)
-          : 0,
-      );
       setOverflowWarnings(diagnostics.overflowWarnings);
       setStatusText(
         typeof metaMap.get('statusText') === 'string'
@@ -785,10 +778,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     fieldsMap.observe(onFields as (evt: unknown) => void);
     streamMap.observe(onStream as (evt: unknown) => void);
     syncLocalFromMaps();
-
-    provider.on('status', (event: { status: string }) => {
-      setIsConnected(event.status === 'connected');
-    });
 
     provider.on('sync', (isSynced: boolean) => {
       if (!isSynced) return;
@@ -1143,22 +1132,6 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
             <div className={styles.kv}>
               <span>Status</span>
               <strong>{templateStatus}</strong>
-            </div>
-            <div className={styles.kv}>
-              <span>Patch count</span>
-              <strong>{patchCount}</strong>
-            </div>
-            <div className={styles.kv}>
-              <span>Data source</span>
-              <strong>OpenAI compose-template</strong>
-            </div>
-            <div className={styles.kv}>
-              <span>Sync</span>
-              <strong>{isConnected ? 'connected' : 'connecting'}</strong>
-            </div>
-            <div className={styles.kv}>
-              <span>Canvas</span>
-              <strong>Wheel zoom · Alt+drag pan</strong>
             </div>
             <ComposeStreamTimeline
               stages={stages}
