@@ -236,6 +236,7 @@ function renderStatChip(
   absoluteX: number,
   absoluteY: number,
 ) {
+  const isLandingHeroBadge = slot.id === 'slot:hero:badge';
   const chip = new Rect({
     width: w,
     height: h,
@@ -255,8 +256,8 @@ function renderStatChip(
     height: h,
     left: x0 + scaledSpace(TOKENS.spacing.sm, s),
     top: y0 + scaledSpace(TOKENS.spacing.xs, s),
-    fontSize: scaledFont(TOKENS.typeRamp.caption.size, s),
-    fontWeight: 700,
+    fontSize: scaledFont(isLandingHeroBadge ? 22 : TOKENS.typeRamp.caption.size, s),
+    fontWeight: isLandingHeroBadge ? 800 : 700,
     fill: TOKENS.colorVariants.textOnStrong,
     lineHeight: TOKENS.typeRamp.caption.lineHeight,
     textAlign: 'center',
@@ -564,6 +565,66 @@ export function slotToFabricObject(
 
   if (slot.type === 'text') {
     const style = textStyleForSlot(slot, s, templateId);
+    const isLandingStepDescription =
+      templateId === 'landing.v1' && slot.id.startsWith('slot:steps:desc:');
+    if (isLandingStepDescription) {
+      const card = new Rect({
+        width: w,
+        height: h,
+        fill: '#ffffff',
+        stroke: 'rgba(12, 86, 208, 0.12)',
+        strokeWidth: 1,
+        rx: scaledRadius(16, s),
+        ry: scaledRadius(16, s),
+        originX: 'left',
+        originY: 'top',
+        left: x0,
+        top: y0,
+        shadow: new Shadow({
+          color: 'rgba(15, 33, 74, 0.09)',
+          blur: Math.max(6, Math.round(14 * s)),
+          offsetX: 0,
+          offsetY: Math.max(2, Math.round(5 * s)),
+        }),
+      });
+      const horizontalPad = scaledSpace(16, s);
+      const verticalPad = scaledSpace(12, s);
+      const copy = new Textbox(display, {
+        left: x0 + horizontalPad,
+        top: y0 + verticalPad,
+        width: Math.max(40, w - horizontalPad * 2),
+        height: Math.max(20, h - verticalPad * 2),
+        fontSize: style.fontSize,
+        fontFamily: style.fontFamily,
+        fill: style.fill,
+        fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight,
+        textAlign: 'left',
+        editable: true,
+        originX: 'left',
+        originY: 'top',
+      });
+      const group = new Group([card, copy], {
+        left: absoluteX,
+        top: absoluteY,
+        originX: 'center',
+        originY: 'center',
+        subTargetCheck: true,
+        objectCaching: false,
+      });
+      markSlotObject(group, slot);
+      group.setControlsVisibility({ mtr: true });
+      return group;
+    }
+    const centerAlignedLandingText =
+      templateId === 'landing.v1' &&
+      (slot.id === 'slot:hero:headline' ||
+        slot.id === 'slot:hero:subheadline' ||
+        slot.id === 'slot:social:title' ||
+        slot.id === 'slot:math:title' ||
+        slot.id === 'slot:math:formula' ||
+        slot.id === 'slot:math:footnote' ||
+        slot.id === 'slot:final:headline');
     const textbox = new Textbox(display, {
       left: x0,
       top: y0,
@@ -574,6 +635,7 @@ export function slotToFabricObject(
       fill: style.fill,
       fontWeight: style.fontWeight,
       lineHeight: style.lineHeight,
+      textAlign: centerAlignedLandingText ? 'center' : 'left',
       editable: true,
       originX: 'left',
       originY: 'top',
@@ -586,41 +648,67 @@ export function slotToFabricObject(
   const isPill = slot.type === 'pill';
   const isLogo = slot.type === 'logo';
   const isCta = slot.type === 'cta' || slot.id === 'slot:final:cta';
+  const isStepPill = templateId === 'landing.v1' && slot.id.startsWith('slot:steps:pill:');
+  const isSubtleLogo = templateId === 'landing.v1' && isLogo;
+  const isStepDescription = slot.id.startsWith('slot:steps:desc:');
 
   const rectStroke = borderColorForTemplateSlot(slot, templateId);
+  const ctaShadow =
+    templateId === 'landing.v1' && isCta
+      ? new Shadow({
+          color: 'rgba(12, 86, 208, 0.34)',
+          blur: Math.max(8, Math.round(18 * s)),
+          offsetX: 0,
+          offsetY: Math.max(3, Math.round(6 * s)),
+        })
+      : undefined;
+  const stepCardShadow =
+    templateId === 'landing.v1' && isStepDescription
+      ? new Shadow({
+          color: 'rgba(15, 33, 74, 0.09)',
+          blur: Math.max(6, Math.round(14 * s)),
+          offsetX: 0,
+          offsetY: Math.max(2, Math.round(5 * s)),
+        })
+      : undefined;
 
   const rect = new Rect({
     width: w,
     height: h,
     fill: bgColor,
-    rx: isPill ? h / 2 : scaledRadius(TOKENS.radius.md, s),
-    ry: isPill ? h / 2 : scaledRadius(TOKENS.radius.md, s),
+    rx: isPill
+      ? (isStepPill ? scaledRadius(8, s) : h / 2)
+      : (slot.id === 'slot:final:cta' ? scaledRadius(8, s) : scaledRadius(TOKENS.radius.md, s)),
+    ry: isPill
+      ? (isStepPill ? scaledRadius(8, s) : h / 2)
+      : (slot.id === 'slot:final:cta' ? scaledRadius(8, s) : scaledRadius(TOKENS.radius.md, s)),
     stroke: rectStroke,
     strokeWidth: 1,
     originX: 'center',
     originY: 'center',
-    shadow:
-      isCta || isPill || isLogo
+    shadow: ctaShadow
+      ?? stepCardShadow
+      ?? (isCta || isPill || isLogo
         ? shadowFromToken(isCta ? TOKENS.shadow.medium : TOKENS.shadow.low, s)
-        : undefined,
+        : undefined),
   });
 
   const labelFill =
-    templateId === 'landing.v1' && slot.id === 'slot:final:cta'
-      ? '#003178'
+    isStepPill
+      ? '#0F172A'
       : isCta || isPill
-      ? TOKENS.colorVariants.textOnStrong
-      : isLogo
-        ? TOKENS.colors.textMuted
-        : TEXT_PRIMARY;
+        ? TOKENS.colorVariants.textOnStrong
+        : isLogo
+          ? TOKENS.colors.textMuted
+          : TEXT_PRIMARY;
 
   const label = new Textbox(display, {
     width: Math.max(40, w - 16 * s),
     height: Math.max(16, h - 10 * s),
-    fontSize: scaledFont(isLogo ? 13 : isCta ? 14 : 15, s),
+    fontSize: scaledFont(isSubtleLogo ? 24 : isStepPill ? 24 : isLogo ? 13 : isCta ? 22 : 15, s),
     fontFamily: FONT,
     fill: labelFill,
-    fontWeight: isLogo ? 600 : 700,
+    fontWeight: isSubtleLogo ? 700 : isStepPill ? 700 : isLogo ? 600 : 700,
     textAlign: 'center',
     lineHeight: 1.15,
     editable: true,
@@ -637,6 +725,14 @@ export function slotToFabricObject(
     objectCaching: false,
   });
   markSlotObject(group, slot);
+  if (isSubtleLogo) {
+    rect.set({
+      fill: 'rgba(255,255,255,0)',
+      stroke: 'rgba(255,255,255,0)',
+      strokeWidth: 0,
+      shadow: undefined,
+    });
+  }
   group.setControlsVisibility({ mtr: true });
   return group;
 }

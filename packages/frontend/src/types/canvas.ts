@@ -13,6 +13,8 @@ export type CanvasObjectRecord = {
   scaleX: number;
   scaleY: number;
   angle: number;
+  /** When set, `left`/`top` are relative to the template page origin (not scene / pasteboard). */
+  coordSpace?: 'page';
   fill?: string;
   text?: string;
   fontSize?: number;

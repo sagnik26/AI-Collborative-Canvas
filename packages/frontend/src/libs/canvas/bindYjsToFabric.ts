@@ -10,6 +10,25 @@ import {
   serializeObject,
 } from './fabricRecords.ts';
 
+function resolveSyncTargetObject(
+  canvas: FabricCanvasType,
+  obj: FabricObject,
+): FabricObject | null {
+  const ownId = getObjectId(obj);
+  if (ownId) return obj;
+  const parent = (obj as unknown as { group?: FabricObject | null }).group;
+  if (parent && getObjectId(parent)) return parent;
+
+  const active = canvas.getActiveObject() as FabricObject | undefined;
+  if (active && getObjectId(active)) return active;
+
+  const activeObjects = canvas.getActiveObjects() as FabricObject[];
+  const activeWithId = activeObjects.find((candidate) => Boolean(getObjectId(candidate)));
+  if (activeWithId) return activeWithId;
+
+  return null;
+}
+
 /**
  * Bidirectional sync between a Fabric canvas and a Y.Map of {@link CanvasObjectRecord}s.
  * Does not create a Y.Doc or websocket — use with your own collaborative document.
@@ -22,8 +41,28 @@ export function bindFabricCanvasToYMap(opts: {
    * objects that are not yet stored in the map).
    */
   shouldPreserveObject?: (obj: FabricObject) => boolean;
+  /** Gate which local objects should be written to Yjs (default: all). */
+  shouldSyncObject?: (obj: FabricObject) => boolean;
+  /** Gate which Yjs ids should be applied back to Fabric (default: all). */
+  shouldSyncId?: (id: string) => boolean;
+  /** Optional record transform before writing to Yjs. */
+  mapRecordForUpsert?: (ctx: {
+    obj: FabricObject;
+    id: string;
+    rec: CanvasObjectRecord;
+  }) => CanvasObjectRecord;
+  /** Optional record transform before applying from Yjs. */
+  mapRecordForApply?: (ctx: { id: string; rec: CanvasObjectRecord }) => CanvasObjectRecord;
 }): YjsFabricMapBinding {
-  const { canvas, ymap, shouldPreserveObject } = opts;
+  const {
+    canvas,
+    ymap,
+    shouldPreserveObject,
+    shouldSyncObject,
+    shouldSyncId,
+    mapRecordForUpsert,
+    mapRecordForApply,
+  } = opts;
 
   let applyingRemote = false;
 
@@ -31,11 +70,15 @@ export function bindFabricCanvasToYMap(opts: {
     applyingRemote = true;
     try {
       const liveIds = new Set<string>();
-      ymap.forEach((_v, k) => liveIds.add(k));
+      ymap.forEach((_v, k) => {
+        if (shouldSyncId && !shouldSyncId(k)) return;
+        liveIds.add(k);
+      });
 
       canvas.getObjects().forEach((o) => {
         const obj = o as FabricObject;
         const id = getObjectId(obj);
+        if (shouldSyncObject && !shouldSyncObject(obj)) return;
         if (id && !liveIds.has(id)) {
           if (shouldPreserveObject?.(obj)) return;
           canvas.remove(obj);
@@ -43,13 +86,15 @@ export function bindFabricCanvasToYMap(opts: {
       });
 
       ymap.forEach((rec, id) => {
-        const obj = ensureObjectForRecord(canvas, id, rec);
+        if (shouldSyncId && !shouldSyncId(id)) return;
+        const mappedRec = mapRecordForApply ? mapRecordForApply({ id, rec }) : rec;
+        const obj = ensureObjectForRecord(canvas, id, mappedRec);
         if (applyOpts?.animatePositions) {
           const fromLeft = typeof obj.left === 'number' ? obj.left : 0;
           const fromTop = typeof obj.top === 'number' ? obj.top : 0;
-          applyRecordToObject(obj, rec);
-          const toLeft = typeof rec.left === 'number' ? rec.left : fromLeft;
-          const toTop = typeof rec.top === 'number' ? rec.top : fromTop;
+          applyRecordToObject(obj, mappedRec);
+          const toLeft = typeof mappedRec.left === 'number' ? mappedRec.left : fromLeft;
+          const toTop = typeof mappedRec.top === 'number' ? mappedRec.top : fromTop;
 
           const anyObj = obj as unknown as {
             animate?: (
@@ -70,7 +115,7 @@ export function bindFabricCanvasToYMap(opts: {
           }
           canvas.requestRenderAll();
         } else {
-          applyRecordToObject(obj, rec);
+          applyRecordToObject(obj, mappedRec);
         }
       });
 
@@ -95,16 +140,27 @@ export function bindFabricCanvasToYMap(opts: {
 
   const upsertToYjs = (obj: FabricObject) => {
     if (applyingRemote) return;
-    const id = getObjectId(obj);
+    const target = resolveSyncTargetObject(canvas, obj);
+    if (!target) return;
+    if (shouldSyncObject && !shouldSyncObject(target)) return;
+    const id = getObjectId(target);
     if (!id) return;
-    const rec = serializeObject(obj);
+    const baseRec = serializeObject(target);
+    const rec = baseRec
+      ? mapRecordForUpsert
+        ? mapRecordForUpsert({ obj: target, id, rec: baseRec })
+        : baseRec
+      : null;
     if (!rec) return;
     ymap.set(id, rec);
   };
 
   const removeFromYjs = (obj: FabricObject) => {
     if (applyingRemote) return;
-    const id = getObjectId(obj);
+    const target = resolveSyncTargetObject(canvas, obj);
+    if (!target) return;
+    if (shouldSyncObject && !shouldSyncObject(target)) return;
+    const id = getObjectId(target);
     if (!id) return;
     ymap.delete(id);
   };
@@ -133,6 +189,13 @@ export function bindFabricCanvasToYMap(opts: {
     const obj = (e as { target?: FabricObject }).target;
     if (obj) upsertToYjs(obj);
   };
+  const onMouseUp = () => {
+    if (applyingRemote) return;
+    const activeObjects = canvas.getActiveObjects() as FabricObject[];
+    activeObjects.forEach((obj) => upsertToYjs(obj));
+    const active = canvas.getActiveObject() as FabricObject | undefined;
+    if (active) upsertToYjs(active);
+  };
 
   canvas.on('object:added', onObjectAdded);
   canvas.on('object:removed', onObjectRemoved);
@@ -140,6 +203,7 @@ export function bindFabricCanvasToYMap(opts: {
   canvas.on('object:moving', onObjectMoving);
   canvas.on('object:scaling', onObjectScaling);
   canvas.on('text:changed', onTextChanged);
+  canvas.on('mouse:up', onMouseUp);
 
   return {
     destroy: () => {
@@ -149,6 +213,7 @@ export function bindFabricCanvasToYMap(opts: {
       canvas.off('object:moving', onObjectMoving);
       canvas.off('object:scaling', onObjectScaling);
       canvas.off('text:changed', onTextChanged);
+      canvas.off('mouse:up', onMouseUp);
 
       ymap.unobserve(onYjsChange as unknown as (evt: unknown) => void);
     },

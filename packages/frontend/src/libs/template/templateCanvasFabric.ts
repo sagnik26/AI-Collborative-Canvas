@@ -23,7 +23,7 @@ function slotPriority(slotId: string) {
   if (slotId === 'slot:hero:headline') return 100;
   if (slotId === 'slot:hero:subheadline') return 98;
   if (slotId === 'slot:final:headline') return 97;
-  if (slotId === 'slot:hero:cta:primary' || slotId === 'slot:final:cta') return 95;
+  if (slotId === 'slot:hero:cta:primary') return 95;
   if (slotId === 'slot:hero:cta:secondary') return 94;
   if (slotId === 'slot:math:formula') return 92;
   if (slotId === 'slot:math:title') return 90;
@@ -90,6 +90,7 @@ export function renderTemplateSlotsToCanvas(
   removeTemplateSlotObjects(canvas);
   for (const slot of template.slots) {
     const raw = textForTemplateSlot(template.templateId, slot.id, fields);
+    if (raw === null) continue;
     if (shouldHideWhenBlank(slot) && (raw == null || raw.trim().length === 0)) continue;
     const fitted = typeof raw === 'string' ? fitSlotTextForCanvas(slot, raw) : raw;
     canvas.add(slotToFabricObject(slot, fitted, pageX, pageY, layout, template.templateId));
@@ -142,17 +143,28 @@ export function applyTemplateFieldsToFabricObjects(
   template: TemplateSchema,
   fields: TemplateFields,
 ) {
+  const layout = getTemplateFabricViewLayout(template);
+  const cw = typeof canvas.width === 'number' ? canvas.width : 0;
+  const ch = typeof canvas.height === 'number' ? canvas.height : 0;
+  const pageX = (cw - layout.viewW) / 2;
+  const pageY = (ch - layout.viewH) / 2;
+
   for (const slot of template.slots) {
     const rawText = textForTemplateSlot(template.templateId, slot.id, fields);
     const newText = typeof rawText === 'string' ? fitSlotTextForCanvas(slot, rawText) : rawText;
-    if (newText === null) continue;
-
     const obj = canvas.getObjects().find((o) => getObjectId(o) === slot.id);
+    if (newText === null) {
+      if (obj) canvas.remove(obj);
+      continue;
+    }
     if (shouldHideWhenBlank(slot) && typeof newText === 'string' && newText.trim().length === 0) {
       if (obj) canvas.remove(obj);
       continue;
     }
-    if (!obj) continue;
+    if (!obj) {
+      canvas.add(slotToFabricObject(slot, newText, pageX, pageY, layout, template.templateId));
+      continue;
+    }
 
     setFabricTextForSlotObject(obj, newText);
   }

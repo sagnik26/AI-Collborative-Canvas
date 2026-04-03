@@ -129,13 +129,28 @@ export function typeTokenForSlot(
   templateId?: TemplateId,
 ): TemplateTypeToken {
   if (templateId === 'landing.v1' && slotId === 'slot:hero:headline') {
-    return { size: 54, weight: 800, lineHeight: 1.08 };
+    return { size: 68, weight: 800, lineHeight: 1.05 };
   }
   if (templateId === 'landing.v1' && slotId === 'slot:hero:subheadline') {
-    return { size: 22, weight: 500, lineHeight: 1.34 };
+    return { size: 24, weight: 500, lineHeight: 1.32 };
   }
   if (templateId === 'landing.v1' && slotId === 'slot:final:headline') {
-    return { size: 16, weight: 700, lineHeight: 1.2 };
+    return { size: 54, weight: 800, lineHeight: 1.08 };
+  }
+  if (templateId === 'landing.v1' && slotId === 'slot:math:formula') {
+    return { size: 56, weight: 600, lineHeight: 1.08 };
+  }
+  if (templateId === 'landing.v1' && slotId === 'slot:math:title') {
+    return { size: 20, weight: 700, lineHeight: 1.2 };
+  }
+  if (templateId === 'landing.v1' && slotId === 'slot:math:footnote') {
+    return { size: 22, weight: 500, lineHeight: 1.26 };
+  }
+  if (templateId === 'landing.v1' && slotId === 'slot:social:title') {
+    return { size: 22, weight: 600, lineHeight: 1.16 };
+  }
+  if (templateId === 'landing.v1' && slotId.startsWith('slot:steps:desc:')) {
+    return { size: 22, weight: 600, lineHeight: 1.3 };
   }
   if (slotId === 'slot:hero:headline') return TEMPLATE_DESIGN_TOKENS.typeRamp.display;
   if (slotId === 'slot:hero:subheadline') {
@@ -193,15 +208,19 @@ export function fabricColorForTemplateSlot(slot: {
   type: 'text' | 'pill' | 'box' | 'connector' | 'logo' | 'cta';
 }, templateId?: TemplateId) {
   if (templateId === 'landing.v1') {
-    if (slot.type === 'connector') return 'rgba(11, 31, 74, 0.28)';
-    if (slot.id.includes(':cta:')) return '#0d47a1';
-    if (slot.id === 'slot:final:cta') return '#f2f4f6';
-    if (slot.type === 'pill') return '#94f0df';
-    if (slot.type === 'logo') return 'rgba(255,255,255,0.9)';
-    if (slot.id === 'slot:hero:visual') return '#eef2f7';
-    if (slot.id === 'slot:math:box') return '#f7f9fb';
-    if (slot.type === 'box') return '#f7f9fb';
-    return '#d8dee8';
+    if (slot.type === 'connector') return 'rgba(12, 86, 208, 0.34)';
+    if (slot.id === 'slot:hero:cta:primary') return '#0c56d0';
+    if (slot.id === 'slot:hero:cta:secondary') return '#003d9b';
+    if (slot.id === 'slot:final:cta') return '#0a4ab8';
+    if (slot.type === 'pill' && slot.id === 'slot:hero:badge') return '#e3ebff';
+    if (slot.type === 'pill' && slot.id.startsWith('slot:steps:pill:')) return '#edf3ff';
+    if (slot.type === 'pill') return '#dae2fd';
+    if (slot.type === 'logo') return 'rgba(255,255,255,0)';
+    if (slot.id === 'slot:hero:visual') return '#eff4ff';
+    if (slot.id === 'slot:math:box') return '#eaf2ff';
+    if (slot.id.startsWith('slot:steps:desc:')) return '#ffffff';
+    if (slot.type === 'box') return '#f8f9ff';
+    return '#e6edff';
   }
   if (slot.type === 'connector') return 'rgba(71, 85, 105, 0.85)';
   if (slot.id.includes(':cta:') || slot.id === 'slot:final:cta') return '#6d28d9';
@@ -218,14 +237,18 @@ export function textColorForTemplateSlot(
   templateId?: TemplateId,
 ) {
   if (templateId === 'landing.v1') {
-    if (slotId === 'slot:hero:headline') return '#191c1e';
-    if (slotId === 'slot:hero:subheadline') return '#434652';
-    if (slotId === 'slot:hero:badge') return '#005047';
-    if (slotId === 'slot:social:title' || slotId === 'slot:math:footnote') return '#737783';
-    if (slotId === 'slot:math:title') return '#11278e';
-    if (slotId === 'slot:math:formula') return '#191c1e';
-    if (slotId === 'slot:final:headline') return '#003178';
-    if (slotId === 'slot:final:cta') return '#003178';
+    if (slotId === 'slot:hero:headline') return '#0b1c30';
+    if (slotId === 'slot:hero:subheadline') return '#565e74';
+    if (slotId === 'slot:hero:badge') return '#2563EB';
+    if (slotId === 'slot:social:title') return '#5a6782';
+    if (slotId.startsWith('slot:steps:pill:')) return '#0F172A';
+    if (slotId.startsWith('slot:steps:desc:')) return '#26344f';
+    if (slotId.startsWith('slot:logo:')) return '#4b5f7a';
+    if (slotId === 'slot:math:title') return '#27406b';
+    if (slotId === 'slot:math:formula') return '#142b52';
+    if (slotId === 'slot:math:footnote') return '#3f567e';
+    if (slotId === 'slot:final:headline') return '#0d1f3d';
+    if (slotId === 'slot:final:cta') return '#ffffff';
   }
   if (slotId === 'slot:hero:headline' || slotId === 'slot:final:headline') {
     return TEMPLATE_DESIGN_TOKENS.colors.textStrong;
@@ -246,12 +269,15 @@ export function borderColorForTemplateSlot(slot: {
   type: 'text' | 'pill' | 'box' | 'connector' | 'logo' | 'cta';
 }, templateId?: TemplateId) {
   if (templateId === 'landing.v1') {
-    if (slot.type === 'logo') return 'rgba(67, 70, 82, 0.1)';
-    if (slot.type === 'pill') return 'rgba(255,255,255,0)';
-    if (slot.id.includes(':cta:')) return 'rgba(255,255,255,0)';
-    if (slot.id === 'slot:final:cta') return 'rgba(67, 70, 82, 0.12)';
-    if (slot.id === 'slot:hero:visual' || slot.id === 'slot:math:box') return 'rgba(67, 70, 82, 0.14)';
-    return 'rgba(67, 70, 82, 0.12)';
+    if (slot.type === 'logo') return 'rgba(255,255,255,0)';
+    if (slot.type === 'pill' && slot.id === 'slot:hero:badge') return 'rgba(12, 86, 208, 0.14)';
+    if (slot.type === 'pill' && slot.id.startsWith('slot:steps:pill:')) return '#E2E8F0';
+    if (slot.type === 'pill') return 'rgba(12, 86, 208, 0.1)';
+    if (slot.id.includes(':cta:') || slot.id === 'slot:final:cta') return 'rgba(255,255,255,0)';
+    if (slot.id === 'slot:hero:visual') return 'rgba(12, 86, 208, 0.12)';
+    if (slot.id === 'slot:math:box') return 'rgba(12, 86, 208, 0.16)';
+    if (slot.id.startsWith('slot:steps:desc:')) return 'rgba(12, 86, 208, 0.12)';
+    return 'rgba(12, 86, 208, 0.1)';
   }
   if (slot.type === 'logo') return TEMPLATE_DESIGN_TOKENS.colorVariants.borderStrong;
   if (slot.id === 'slot:hero:visual') return TEMPLATE_DESIGN_TOKENS.colorVariants.borderSuccess;

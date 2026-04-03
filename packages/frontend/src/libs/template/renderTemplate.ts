@@ -129,11 +129,7 @@ export function textForTemplateSlot(
   slotId: string,
   fields: TemplateFields,
 ): string | null {
-  if (templateId === 'landing.v1') {
-    if (slotId === 'slot:logo:4') return firstNonEmpty(fields.logos[3], 'Documentation');
-    if (slotId === 'slot:logo:5') return firstNonEmpty(fields.logos[4], 'Privacy');
-    if (slotId === 'slot:logo:6') return firstNonEmpty(fields.logos[5], 'Security');
-  }
+  if (templateId === 'landing.v1' && slotId === 'slot:math:title') return null;
   if (slotId === 'slot:hero:visual') {
     return firstNonEmpty(fields.mathTitle, fields.socialProofTitle, fields.heroHeadline);
   }
