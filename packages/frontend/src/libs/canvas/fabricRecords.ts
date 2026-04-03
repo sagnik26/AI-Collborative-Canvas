@@ -39,7 +39,51 @@ export function getObjectId(obj: FabricObject) {
   return null;
 }
 
+const DESIGN_PALETTE_KINDS: ReadonlySet<CanvasObjectKind> = new Set([
+  'rect',
+  'circle',
+  'text',
+  'line',
+  'arrow',
+  'table',
+]);
+
+/** Palette objects use `design-*` ids; refit/reapply from Yjs must restore Fabric `data` or delete UI breaks. */
+function applyDesignPaletteDataFromRecord(id: string, rec: CanvasObjectRecord, obj: FabricObject) {
+  if (!id.startsWith('design-')) return;
+  if (!DESIGN_PALETTE_KINDS.has(rec.kind)) return;
+  obj.set('data', { source: 'designPalette', canvasKind: rec.kind });
+}
+
+/** Template editor palette objects carry an explicit kind for Yjs serialization. */
+function designPaletteKindFromData(obj: FabricObject): CanvasObjectKind | null {
+  const raw = (obj as unknown as { get?: (k: string) => unknown }).get?.('data');
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as { source?: unknown; canvasKind?: unknown };
+  if (d.source !== 'designPalette') return null;
+  const k = d.canvasKind;
+  return typeof k === 'string' && DESIGN_PALETTE_KINDS.has(k as CanvasObjectKind)
+    ? (k as CanvasObjectKind)
+    : null;
+}
+
+/** Group carries `data`; inner Textbox (e.g. after double‑click edit) does not — walk up for hit targets. */
+export function getDesignPaletteRoot(obj: FabricObject): FabricObject | null {
+  let cur: FabricObject | undefined = obj;
+  while (cur) {
+    if (designPaletteKindFromData(cur) != null) return cur;
+    cur = (cur as unknown as { group?: FabricObject }).group;
+  }
+  return null;
+}
+
+export function isDesignPaletteFabricObject(obj: FabricObject): boolean {
+  return getDesignPaletteRoot(obj) != null;
+}
+
 export function getKind(obj: FabricObject): CanvasObjectKind | null {
+  const paletteKind = designPaletteKindFromData(obj);
+  if (paletteKind) return paletteKind;
   if (isLineLike(obj)) return 'line';
   if (isTextboxLike(obj)) return 'text';
   if (isGroupLike(obj)) {
@@ -227,6 +271,9 @@ export function applyRecordToObject(
     obj.set('fill', rec.fill);
   }
 
+  const oid = getObjectId(obj);
+  if (oid) applyDesignPaletteDataFromRecord(oid, rec, obj);
+
   obj.setCoords();
 }
 
@@ -240,7 +287,10 @@ export function ensureObjectForRecord(
     .find((o) => getObjectId(o as FabricObject) === id) as
     | FabricObject
     | undefined;
-  if (existing) return existing;
+  if (existing) {
+    applyDesignPaletteDataFromRecord(id, rec, existing);
+    return existing;
+  }
 
   let obj: FabricObject;
   if (rec.kind === 'rect') obj = createLabeledRect(c);
@@ -256,6 +306,7 @@ export function ensureObjectForRecord(
   else obj = createText(c);
 
   obj.set('id', id);
+  applyDesignPaletteDataFromRecord(id, rec, obj);
   c.add(obj);
   return obj;
 }

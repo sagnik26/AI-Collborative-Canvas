@@ -1,7 +1,4 @@
-export type ConversationMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-};
+import type { ConversationMessage } from '../types/conversation.js';
 
 // Session-scoped (in-memory) conversation history keyed by roomId.
 // Stores the last 5 message pairs (10 messages).

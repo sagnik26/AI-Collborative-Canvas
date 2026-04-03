@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type * as Y from 'yjs';
 import type { YjsPersistence } from 'y-websocket/bin/utils';
-import type { DocRepository } from './DocRepository.js';
+import type { DocRepository } from '../types/repositories.js';
 
 const require = createRequire(import.meta.url);
 // Ensure we use the same Yjs instance as y-websocket (CJS) to avoid double-import issues.

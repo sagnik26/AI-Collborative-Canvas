@@ -5,6 +5,7 @@ import { FabricCanvas } from './FabricCanvas';
 import styles from './CanvasShell.module.css';
 import { PromptBar } from './PromptBar';
 import type { ToolId } from '../types/canvas';
+import type { PromptMessage } from '../types/prompt';
 import { bindYjsToFabricCanvas } from '../libs/canvas/bindYjsToFabric';
 import {
   buildAiLayoutElementsFromCanvas,
@@ -18,9 +19,8 @@ import {
   createTable,
   createText,
 } from '../libs/canvas/fabricFactories';
-
-const CANVAS_MIN_W = 720;
-const CANVAS_MIN_H = 520;
+import { nudgeViewportToKeepObjectsVisible } from '../libs/canvas/viewport.ts';
+import { CANVAS_MIN_H, CANVAS_MIN_W } from '../constants/canvas';
 
 export function CanvasShell() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -36,11 +36,6 @@ export function CanvasShell() {
   const [aiStatusText, setAiStatusText] = useState<string>('');
   const [yjsReady, setYjsReady] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(true);
-  type PromptMessage = {
-    id: string;
-    text: string;
-    status: 'pending' | 'done' | 'error';
-  };
   const nextPromptIdRef = useRef(1);
   const [promptMessages, setPromptMessages] = useState<PromptMessage[]>([]);
 
@@ -72,71 +67,23 @@ export function CanvasShell() {
     return () => ro.disconnect();
   }, [computeSize]);
 
-  const nudgeViewportToKeepObjectsVisible = useCallback(() => {
+  const keepObjectsVisible = useCallback(() => {
     const c = fabricRef.current;
     if (!c) return;
-    const objs = c.getObjects() as FabricObject[];
-    if (objs.length === 0) return;
-
-    const margin = 18;
-    const w = size.w;
-    const h = size.h;
-
-    const bounds = objs.reduce(
-      (acc, o) => {
-        const r = o.getBoundingRect();
-        const left = r.left;
-        const top = r.top;
-        const right = r.left + r.width;
-        const bottom = r.top + r.height;
-        return {
-          minX: Math.min(acc.minX, left),
-          minY: Math.min(acc.minY, top),
-          maxX: Math.max(acc.maxX, right),
-          maxY: Math.max(acc.maxY, bottom),
-        };
-      },
-      {
-        minX: Number.POSITIVE_INFINITY,
-        minY: Number.POSITIVE_INFINITY,
-        maxX: Number.NEGATIVE_INFINITY,
-        maxY: Number.NEGATIVE_INFINITY,
-      },
-    );
-
-    // Only pan (no zoom) to keep content within the viewport.
-    const vt = (c.viewportTransform ?? [1, 0, 0, 1, 0, 0]).slice() as number[];
-    const zoom = typeof c.getZoom === 'function' ? c.getZoom() : 1;
-    const viewMinX = -vt[4] / zoom;
-    const viewMinY = -vt[5] / zoom;
-    const viewMaxX = viewMinX + w / zoom;
-    const viewMaxY = viewMinY + h / zoom;
-
-    let dx = 0;
-    let dy = 0;
-
-    if (bounds.maxX > viewMaxX - margin) dx = bounds.maxX - (viewMaxX - margin);
-    if (bounds.minX < viewMinX + margin) dx = bounds.minX - (viewMinX + margin);
-    if (bounds.maxY > viewMaxY - margin) dy = bounds.maxY - (viewMaxY - margin);
-    if (bounds.minY < viewMinY + margin) dy = bounds.minY - (viewMinY + margin);
-
-    if (dx !== 0 || dy !== 0) {
-      vt[4] -= dx * zoom;
-      vt[5] -= dy * zoom;
-      c.setViewportTransform(
-        vt as [number, number, number, number, number, number],
-      );
-      c.requestRenderAll();
-    }
+    nudgeViewportToKeepObjectsVisible({
+      canvas: c,
+      viewportWidth: size.w,
+      viewportHeight: size.h,
+    });
   }, [size.h, size.w]);
 
   useEffect(() => {
     // After layout/size changes (e.g. chat toggle), keep shapes reachable.
     const id = window.requestAnimationFrame(() => {
-      nudgeViewportToKeepObjectsVisible();
+      keepObjectsVisible();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [chatCollapsed, nudgeViewportToKeepObjectsVisible, size.h, size.w]);
+  }, [chatCollapsed, keepObjectsVisible, size.h, size.w]);
 
   const onReady = useCallback((c: FabricCanvasType) => {
     fabricRef.current = c;
