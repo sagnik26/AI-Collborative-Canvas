@@ -4,6 +4,7 @@ import type {
   TemplateRenderDiagnostics,
   TemplateSchema,
   TemplateSlot,
+  TemplateTheme,
 } from '../../types/template';
 import { TEMPLATE_RENDER_BASE_H, TEMPLATE_RENDER_BASE_W } from '../../constants/templateRender.ts';
 import {
@@ -149,8 +150,9 @@ export function colorForSlot(slot: TemplateSlot) {
 export function fabricFillForSlot(
   slot: TemplateSlot,
   templateId?: TemplateSchema['templateId'],
+  theme?: TemplateTheme,
 ) {
-  return fabricColorForTemplateSlot(slot, templateId);
+  return fabricColorForTemplateSlot(slot, templateId, theme);
 }
 
 export function renderTemplateWithDiagnostics(

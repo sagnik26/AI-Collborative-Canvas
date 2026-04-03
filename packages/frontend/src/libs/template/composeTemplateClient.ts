@@ -5,7 +5,7 @@ import {
   type TemplateId,
   type TemplateTheme,
 } from '../../types/template';
-import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
+import { isValidThemeForTemplateId } from '../../constants/templateRegistry';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -28,8 +28,7 @@ function parseEvent(
       typeof tid !== 'string' ||
       typeof th !== 'string' ||
       input.status !== 'streaming' ||
-      !Object.hasOwn(TEMPLATE_THEME_BY_PACK, tid) ||
-      TEMPLATE_THEME_BY_PACK[tid as TemplateId] !== th ||
+      !isValidThemeForTemplateId(tid as TemplateId, th) ||
       !allowed.has(tid as TemplateId)
     ) {
       throw new Error('Invalid template_selected event');

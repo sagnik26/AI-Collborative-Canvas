@@ -72,7 +72,10 @@ function createBlankTemplateFields(): TemplateFields {
 }
 
 export function TemplateCanvasShell(props: TemplateEditorShellProps) {
-  const artboardColorsForTemplateId = (_templateId: TemplateId) => DEFAULT_TEMPLATE_ARTBOARD_COLORS;
+  const artboardColorsForTemplateId = (templateId: TemplateId) => {
+    void templateId;
+    return DEFAULT_TEMPLATE_ARTBOARD_COLORS;
+  };
 
   const templateCandidatesRef = useRef<TemplateId[]>(DEFAULT_TEMPLATE_CANDIDATES);
   templateCandidatesRef.current = props.templateCandidates ?? DEFAULT_TEMPLATE_CANDIDATES;
@@ -89,6 +92,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
   const fabricBindingRef = useRef<ReturnType<typeof bindFabricCanvasToYMap> | null>(null);
   const pageOffsetRef = useRef({ pageX: 0, pageY: 0 });
   const lastRenderedTemplateIdRef = useRef<string>('');
+  const lastRenderedThemeRef = useRef<string>('');
   const fabricDisposeRef = useRef<(() => void) | null>(null);
   /** Skip resize refit when it matches the last layout from {@link handleFabricReady}. */
   const fabricLayoutKeyRef = useRef<string>('');
@@ -338,6 +342,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     canSyncTemplateObjectsRef.current = false;
     const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, fields, {
       artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+      theme: normalizedMeta.theme,
     });
     pageOffsetRef.current = { pageX, pageY };
 
@@ -392,6 +397,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
     canSyncTemplateObjectsRef.current = false;
     const { pageX, pageY } = refitTemplateSceneAndRender(c, pack, fields, {
       artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+      theme: normalizedMeta.theme,
     });
     pageOffsetRef.current = { pageX, pageY };
     clearTemplateSlotRecordsIfFieldsEmpty(ydocCurrent, objectsMapCurrent, fields);
@@ -481,8 +487,14 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       const canvas = fabricRef.current;
       const fieldsMapCurrent = fieldsMapRef.current;
       if (!canvas || !fieldsMapCurrent) return;
-      if (normalizedMeta.templateId === lastRenderedTemplateIdRef.current) return;
+      if (
+        normalizedMeta.templateId === lastRenderedTemplateIdRef.current &&
+        normalizedMeta.theme === lastRenderedThemeRef.current
+      ) {
+        return;
+      }
       lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
+      lastRenderedThemeRef.current = normalizedMeta.theme;
       const normalizedFields = withTemplateFieldFallbacks(
         normalizedMeta.templateId,
         readTemplateFieldsFromMap(cloneYMap(fieldsMapCurrent)),
@@ -493,6 +505,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       canSyncTemplateObjectsRef.current = false;
       const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
         artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+        theme: normalizedMeta.theme,
       });
       pageOffsetRef.current = { pageX, pageY };
       clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
@@ -525,6 +538,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         canSyncTemplateObjectsRef.current = false;
         const { pageX, pageY } = refitTemplateSceneAndRender(canvas, pack, normalizedFields, {
           artboardColors: artboardColorsForTemplateId(normalizedMeta.templateId),
+          theme: normalizedMeta.theme,
         });
         pageOffsetRef.current = { pageX, pageY };
         clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
@@ -539,7 +553,7 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
         });
         return;
       }
-      applyTemplateFieldsToFabricObjects(canvas, pack, normalizedFields);
+      applyTemplateFieldsToFabricObjects(canvas, pack, normalizedFields, normalizedMeta.theme);
       clearTemplateSlotRecordsIfFieldsEmpty(ydoc, objectsMap, normalizedFields);
     };
 
@@ -767,12 +781,14 @@ export function TemplateCanvasShell(props: TemplateEditorShellProps) {
       { enabled: false },
     );
     lastRenderedTemplateIdRef.current = normalizedMeta.templateId;
+    lastRenderedThemeRef.current = normalizedMeta.theme;
     renderTemplateSlotsToCanvas(
       canvas,
       getTemplatePack(normalizedMeta.templateId),
       normalizedFields,
       pageX,
       pageY,
+      normalizedMeta.theme,
     );
     const ydocForSlots = ydocRef.current;
     const objectsMapForSlots = objectsMapRef.current;

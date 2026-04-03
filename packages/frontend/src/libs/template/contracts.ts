@@ -7,14 +7,18 @@ import {
   type TemplateTheme,
 } from '../../types/template';
 import type { TemplateStringFieldKey } from '../../types/templateFields';
-import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
+import {
+  TEMPLATE_DEFAULT_THEME_BY_PACK,
+  TEMPLATE_THEMES_BY_PACK,
+  isValidThemeForTemplateId,
+} from '../../constants/templateRegistry';
 import { TEMPLATE_SCHEMA_VERSION } from '../../constants/templateSchema';
 
 export function createDefaultTemplateMeta(): TemplateMeta {
   const templateId: TemplateId = 'landing.v1';
   return {
     templateId,
-    theme: TEMPLATE_THEME_BY_PACK[templateId],
+    theme: TEMPLATE_DEFAULT_THEME_BY_PACK[templateId],
     status: 'idle',
     version: TEMPLATE_SCHEMA_VERSION,
   };
@@ -100,7 +104,7 @@ export function validateTemplatePatch(patch: TemplatePatch): string[] {
 }
 
 function isTemplateId(v: unknown): v is TemplateId {
-  return typeof v === 'string' && Object.hasOwn(TEMPLATE_THEME_BY_PACK, v);
+  return typeof v === 'string' && Object.hasOwn(TEMPLATE_THEMES_BY_PACK, v);
 }
 
 export function readTemplateMetaFromMap(map: Map<string, unknown>): TemplateMeta {
@@ -111,9 +115,10 @@ export function readTemplateMetaFromMap(map: Map<string, unknown>): TemplateMeta
   const version = map.get('version');
 
   const resolvedId: TemplateId = isTemplateId(templateId) ? templateId : defaults.templateId;
-  const expectedTheme: TemplateTheme = TEMPLATE_THEME_BY_PACK[resolvedId];
   const resolvedTheme: TemplateTheme =
-    typeof theme === 'string' && theme === expectedTheme ? theme : expectedTheme;
+    typeof theme === 'string' && isValidThemeForTemplateId(resolvedId, theme)
+      ? theme
+      : TEMPLATE_DEFAULT_THEME_BY_PACK[resolvedId];
 
   return {
     templateId: resolvedId,

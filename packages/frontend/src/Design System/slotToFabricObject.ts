@@ -1,6 +1,7 @@
 import { Circle, Group, Line, Rect, Shadow, Textbox } from 'fabric';
 import type { FabricObject } from 'fabric';
-import type { TemplateId, TemplateSlot, TemplateSlotComponentKind } from '../types/template';
+import type { TemplateId, TemplateSlot, TemplateSlotComponentKind, TemplateTheme } from '../types/template';
+import { landingV1PaletteForTheme } from './templateLandingPalettes.ts';
 import { fabricFillForSlot } from '../libs/template/renderTemplate.ts';
 import {
   borderColorForTemplateSlot,
@@ -39,7 +40,12 @@ function shadowFromToken(
   });
 }
 
-function textStyleForSlot(slot: TemplateSlot, s: number, templateId?: TemplateId) {
+function textStyleForSlot(
+  slot: TemplateSlot,
+  s: number,
+  templateId?: TemplateId,
+  theme?: TemplateTheme,
+) {
   const token = typeTokenForSlot(slot.id, templateId);
   const fontFamily =
     templateId === 'landing.v1' && slot.id === 'slot:hero:headline'
@@ -48,7 +54,7 @@ function textStyleForSlot(slot: TemplateSlot, s: number, templateId?: TemplateId
   return {
     fontSize: scaledFont(token.size, s),
     fontWeight: token.weight,
-    fill: textColorForTemplateSlot(slot.id, templateId),
+    fill: textColorForTemplateSlot(slot.id, templateId, theme),
     lineHeight: token.lineHeight,
     fontFamily,
   };
@@ -235,12 +241,16 @@ function renderStatChip(
   s: number,
   absoluteX: number,
   absoluteY: number,
+  templateId?: TemplateId,
+  theme?: TemplateTheme,
 ) {
   const isLandingHeroBadge = slot.id === 'slot:hero:badge';
+  const landingPalette =
+    templateId === 'landing.v1' && isLandingHeroBadge ? landingV1PaletteForTheme(theme) : null;
   const chip = new Rect({
     width: w,
     height: h,
-    fill: TOKENS.colors.primary,
+    fill: landingPalette?.ctaPrimary ?? TOKENS.colors.primary,
     stroke: TOKENS.colorVariants.transparent,
     strokeWidth: 0,
     rx: h / 2,
@@ -258,7 +268,7 @@ function renderStatChip(
     top: y0 + scaledSpace(TOKENS.spacing.xs, s),
     fontSize: scaledFont(isLandingHeroBadge ? 22 : TOKENS.typeRamp.caption.size, s),
     fontWeight: isLandingHeroBadge ? 800 : 700,
-    fill: TOKENS.colorVariants.textOnStrong,
+    fill: landingPalette?.textOnCta ?? TOKENS.colorVariants.textOnStrong,
     lineHeight: TOKENS.typeRamp.caption.lineHeight,
     textAlign: 'center',
     editable: true,
@@ -505,12 +515,16 @@ function renderSemanticComponent(
   s: number,
   absoluteX: number,
   absoluteY: number,
+  templateId?: TemplateId,
+  theme?: TemplateTheme,
 ) {
   const kind = slot.componentKind as TemplateSlotComponentKind;
   if (kind === 'kpiCard') return renderKpiCard(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
   if (kind === 'navItem') return renderNavItem(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
   if (kind === 'topTab') return renderTopTab(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
-  if (kind === 'statChip') return renderStatChip(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
+  if (kind === 'statChip') {
+    return renderStatChip(slot, display, x0, y0, w, h, s, absoluteX, absoluteY, templateId, theme);
+  }
   if (kind === 'infoListItem') {
     return renderInfoListItem(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
   }
@@ -534,6 +548,7 @@ export function slotToFabricObject(
   pageY: number,
   layout: TemplateFabricViewLayout,
   templateId?: TemplateId,
+  theme?: TemplateTheme,
 ): FabricObject {
   const { s, padX, padY } = layout;
   const x0 = pageX + padX + slot.x * s;
@@ -545,7 +560,19 @@ export function slotToFabricObject(
   const display = text ?? '';
 
   if (slot.componentKind) {
-    const semantic = renderSemanticComponent(slot, display, x0, y0, w, h, s, absoluteX, absoluteY);
+    const semantic = renderSemanticComponent(
+      slot,
+      display,
+      x0,
+      y0,
+      w,
+      h,
+      s,
+      absoluteX,
+      absoluteY,
+      templateId,
+      theme,
+    );
     if (semantic) return semantic;
   }
 
@@ -553,7 +580,7 @@ export function slotToFabricObject(
     const line = new Line(
       [x0, y0 + h / 2, x0 + w, y0 + h / 2],
       {
-        stroke: fabricFillForSlot(slot, templateId),
+        stroke: fabricFillForSlot(slot, templateId, theme),
         strokeWidth: Math.max(2, h),
         strokeLineCap: 'round',
         selectable: true,
@@ -564,15 +591,16 @@ export function slotToFabricObject(
   }
 
   if (slot.type === 'text') {
-    const style = textStyleForSlot(slot, s, templateId);
+    const style = textStyleForSlot(slot, s, templateId, theme);
     const isLandingStepDescription =
       templateId === 'landing.v1' && slot.id.startsWith('slot:steps:desc:');
     if (isLandingStepDescription) {
+      const lp = landingV1PaletteForTheme(theme);
       const card = new Rect({
         width: w,
         height: h,
-        fill: '#ffffff',
-        stroke: 'rgba(12, 86, 208, 0.12)',
+        fill: lp.stepCardBg,
+        stroke: lp.borderStepCard,
         strokeWidth: 1,
         rx: scaledRadius(16, s),
         ry: scaledRadius(16, s),
@@ -581,7 +609,7 @@ export function slotToFabricObject(
         left: x0,
         top: y0,
         shadow: new Shadow({
-          color: 'rgba(15, 33, 74, 0.09)',
+          color: lp.shadowStepCard,
           blur: Math.max(6, Math.round(14 * s)),
           offsetX: 0,
           offsetY: Math.max(2, Math.round(5 * s)),
@@ -644,28 +672,29 @@ export function slotToFabricObject(
     return textbox;
   }
 
-  const bgColor = fabricFillForSlot(slot, templateId);
+  const bgColor = fabricFillForSlot(slot, templateId, theme);
   const isPill = slot.type === 'pill';
   const isLogo = slot.type === 'logo';
   const isCta = slot.type === 'cta' || slot.id === 'slot:final:cta';
   const isStepPill = templateId === 'landing.v1' && slot.id.startsWith('slot:steps:pill:');
   const isSubtleLogo = templateId === 'landing.v1' && isLogo;
   const isStepDescription = slot.id.startsWith('slot:steps:desc:');
+  const landingPalette = templateId === 'landing.v1' ? landingV1PaletteForTheme(theme) : null;
 
-  const rectStroke = borderColorForTemplateSlot(slot, templateId);
+  const rectStroke = borderColorForTemplateSlot(slot, templateId, theme);
   const ctaShadow =
-    templateId === 'landing.v1' && isCta
+    templateId === 'landing.v1' && isCta && landingPalette
       ? new Shadow({
-          color: 'rgba(12, 86, 208, 0.34)',
+          color: landingPalette.shadowCta,
           blur: Math.max(8, Math.round(18 * s)),
           offsetX: 0,
           offsetY: Math.max(3, Math.round(6 * s)),
         })
       : undefined;
   const stepCardShadow =
-    templateId === 'landing.v1' && isStepDescription
+    templateId === 'landing.v1' && isStepDescription && landingPalette
       ? new Shadow({
-          color: 'rgba(15, 33, 74, 0.09)',
+          color: landingPalette.shadowStepCard,
           blur: Math.max(6, Math.round(14 * s)),
           offsetX: 0,
           offsetY: Math.max(2, Math.round(5 * s)),
@@ -695,7 +724,7 @@ export function slotToFabricObject(
 
   const labelFill =
     isStepPill
-      ? '#0F172A'
+      ? (landingPalette?.textStepPill ?? '#0F172A')
       : isCta || isPill
         ? TOKENS.colorVariants.textOnStrong
         : isLogo

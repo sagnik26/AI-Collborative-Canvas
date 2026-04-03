@@ -1,6 +1,6 @@
 import { Group, Textbox } from 'fabric';
 import type { Canvas as FabricCanvasType, FabricObject } from 'fabric';
-import type { TemplateFields, TemplateSchema, TemplateSlot } from '../../types/template';
+import type { TemplateFields, TemplateSchema, TemplateSlot, TemplateTheme } from '../../types/template';
 import { getObjectId } from '../canvas/fabricRecords.ts';
 import { hasAnyTemplateContent } from './templateFieldsContent.ts';
 import type { TemplateArtboardColors } from './templateArtboard.ts';
@@ -93,6 +93,7 @@ export function renderTemplateSlotsToCanvas(
   fields: TemplateFields,
   pageX: number,
   pageY: number,
+  theme?: TemplateTheme,
 ) {
   const layout = getTemplateFabricViewLayout(template);
   removeTemplateSlotObjects(canvas);
@@ -106,7 +107,7 @@ export function renderTemplateSlotsToCanvas(
     if (raw === null) continue;
     if (shouldHideWhenBlank(slot) && (raw == null || raw.trim().length === 0)) continue;
     const fitted = typeof raw === 'string' ? fitSlotTextForCanvas(slot, raw) : raw;
-    canvas.add(slotToFabricObject(slot, fitted, pageX, pageY, layout, template.templateId));
+    canvas.add(slotToFabricObject(slot, fitted, pageX, pageY, layout, template.templateId, theme));
   }
   pruneOverlappingTemplateSlots(canvas);
   canvas.requestRenderAll();
@@ -117,7 +118,7 @@ export function refitTemplateSceneAndRender(
   canvas: FabricCanvasType,
   template: TemplateSchema,
   fields: TemplateFields,
-  options?: { artboardColors?: TemplateArtboardColors },
+  options?: { artboardColors?: TemplateArtboardColors; theme?: TemplateTheme },
 ): { pageX: number; pageY: number } {
   const cw = typeof canvas.width === 'number' ? canvas.width : 0;
   const ch = typeof canvas.height === 'number' ? canvas.height : 0;
@@ -129,7 +130,7 @@ export function refitTemplateSceneAndRender(
 
   setupTemplateArtboard(canvas, options?.artboardColors, { width: pageW, height: pageH });
 
-  renderTemplateSlotsToCanvas(canvas, template, fields, pageX, pageY);
+  renderTemplateSlotsToCanvas(canvas, template, fields, pageX, pageY, options?.theme);
   return { pageX, pageY };
 }
 
@@ -155,6 +156,7 @@ export function applyTemplateFieldsToFabricObjects(
   canvas: FabricCanvasType,
   template: TemplateSchema,
   fields: TemplateFields,
+  theme?: TemplateTheme,
 ) {
   const layout = getTemplateFabricViewLayout(template);
   const cw = typeof canvas.width === 'number' ? canvas.width : 0;
@@ -188,7 +190,7 @@ export function applyTemplateFieldsToFabricObjects(
       continue;
     }
     if (!obj) {
-      canvas.add(slotToFabricObject(slot, newText, pageX, pageY, layout, template.templateId));
+      canvas.add(slotToFabricObject(slot, newText, pageX, pageY, layout, template.templateId, theme));
       continue;
     }
 

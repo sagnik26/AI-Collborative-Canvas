@@ -17,13 +17,13 @@ export type TemplateSlotComponentKind =
   | 'barChartPanel'
   | 'sparkline';
 
-import { TEMPLATE_THEME_BY_PACK } from '../constants/templateRegistry';
+import { TEMPLATE_THEMES_BY_PACK } from '../constants/templateRegistry';
 
 export type TemplateOverflow = 'wrap' | 'ellipsis' | 'clip';
 
-export type TemplateId = keyof typeof TEMPLATE_THEME_BY_PACK;
+export type TemplateId = keyof typeof TEMPLATE_THEMES_BY_PACK;
 
-export type TemplateTheme = (typeof TEMPLATE_THEME_BY_PACK)[TemplateId];
+export type TemplateTheme = (typeof TEMPLATE_THEMES_BY_PACK)[TemplateId][number];
 
 /**
  * Shared field model for all packs (Option A): same keys everywhere; packs differ by `TemplateSchema` slots.

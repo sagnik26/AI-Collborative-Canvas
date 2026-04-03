@@ -34,6 +34,8 @@ import {
 import {
   parseTemplateComposeStreamLine,
 } from '../schemas/templateComposeStreamSchemas.js';
+import type { TemplatePackId, TemplatePackTheme } from '../types/templatePackRegistry.js';
+import { nextRotatingThemeForCandidates } from '../utils/templateThemeRotation.js';
 
 export class OpenAiTemplateComposeService {
   private readonly client: OpenAI;
@@ -56,7 +58,7 @@ export class OpenAiTemplateComposeService {
     const completion = await this.client.chat.completions.create(
       {
         model: this.model,
-        temperature: 0.3,
+        temperature: 0.55,
         messages: [
           { role: 'system', content: buildTemplateComposeSystemPrompt(req) },
           { role: 'user', content: userContent },
@@ -161,6 +163,13 @@ export class OpenAiTemplateComposeService {
     req: TemplateComposeRequest,
     signal?: AbortSignal,
   ): AsyncGenerator<TemplateComposeEvent> {
+    const serverTheme: TemplatePackTheme =
+      req.themeHint != null
+        ? (req.themeHint as TemplatePackTheme)
+        : nextRotatingThemeForCandidates(req.templateCandidates as TemplatePackId[]);
+    const reqForModel: TemplateComposeRequest = { ...req, themeHint: serverTheme };
+    const resolveThemeOpts = { serverTheme };
+
     const baseId = `ai-${Date.now()}`;
     let seq = 1;
     let completed = false;
@@ -173,11 +182,11 @@ export class OpenAiTemplateComposeService {
 
     const stream = await this.client.chat.completions.create({
       model: this.model,
-      temperature: 0.5,
+      temperature: 0.88,
       stream: true,
       messages: [
-        { role: 'system', content: buildTemplateComposeStreamingPrompt(req) },
-        { role: 'user', content: req.prompt },
+        { role: 'system', content: buildTemplateComposeStreamingPrompt(reqForModel) },
+        { role: 'user', content: reqForModel.prompt },
       ],
     }, { signal });
 
@@ -199,7 +208,8 @@ export class OpenAiTemplateComposeService {
           const { templateId, theme } = resolveTemplateSelection(
             eventLine.templateId,
             eventLine.theme,
-            req.templateCandidates,
+            reqForModel.templateCandidates,
+            resolveThemeOpts,
           );
           yield templateSelectedEventSchema.parse({
             type: 'template_selected',
@@ -257,7 +267,8 @@ export class OpenAiTemplateComposeService {
           const { templateId, theme } = resolveTemplateSelection(
             eventLine.templateId,
             eventLine.theme,
-            req.templateCandidates,
+            reqForModel.templateCandidates,
+            resolveThemeOpts,
           );
           yield templateSelectedEventSchema.parse({
             type: 'template_selected',
@@ -306,7 +317,8 @@ export class OpenAiTemplateComposeService {
       const { templateId, theme } = resolveTemplateSelection(
         validated.data.templateId,
         validated.data.theme,
-        req.templateCandidates,
+        reqForModel.templateCandidates,
+        resolveThemeOpts,
       );
       yield templateSelectedEventSchema.parse({
         type: 'template_selected',
@@ -345,7 +357,7 @@ export class OpenAiTemplateComposeService {
       }
     }
     const packPolicy = getFieldPolicyForTemplateId(
-      resolvedTemplateId ?? defaultTemplateIdForCandidates(req.templateCandidates),
+      resolvedTemplateId ?? defaultTemplateIdForCandidates(reqForModel.templateCandidates),
     );
     let gaps = packPolicy.missingFieldGroups(accumulated);
     const maxRepairPasses = 2;
@@ -354,11 +366,12 @@ export class OpenAiTemplateComposeService {
         repairPass > 0
           ? `The server still needs non-empty content for these sections: ${gaps.join(', ')}. Return one full JSON object with templateId, theme, and fields where EVERY required string/array is filled (≥3 logos, ≥3 steps with title+description each, all hero/math/final strings non-empty).`
           : undefined;
-      const repaired = await this.requestRepairCompose(req, signal, repairHint);
+      const repaired = await this.requestRepairCompose(reqForModel, signal, repairHint);
       const { templateId: repairTid, theme: repairTheme } = resolveTemplateSelection(
         repaired.templateId,
         repaired.theme,
-        req.templateCandidates,
+        reqForModel.templateCandidates,
+        resolveThemeOpts,
       );
       if (!selected) {
         yield templateSelectedEventSchema.parse({

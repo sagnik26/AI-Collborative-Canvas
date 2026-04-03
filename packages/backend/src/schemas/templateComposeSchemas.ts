@@ -4,7 +4,6 @@ import {
   isValidThemeForTemplateId,
   OPENAI_TEMPLATE_ID_ENUM,
   OPENAI_TEMPLATE_THEME_ENUM,
-  TEMPLATE_THEME_BY_PACK,
 } from '../constants/templatePackRegistry.js';
 import type { TemplatePackId, TemplatePackTheme } from '../types/templatePackRegistry.js';
 
@@ -97,13 +96,11 @@ export const templateComposeRequestSchema = z
   .refine(
     (d) => {
       if (d.themeHint == null) return true;
-      return d.templateCandidates.some(
-        (id) => TEMPLATE_THEME_BY_PACK[id] === d.themeHint,
-      );
+      return d.templateCandidates.some((id) => isValidThemeForTemplateId(id, d.themeHint!));
     },
     {
       message:
-        'themeHint must equal the canonical theme of at least one entry in templateCandidates',
+        'themeHint must be an allowed color theme for at least one entry in templateCandidates',
     },
   );
 

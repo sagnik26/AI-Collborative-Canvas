@@ -1,13 +1,9 @@
 import styles from '../../components/TemplateEditorShell.module.css';
 import type { TemplateTheme } from '../../types/template';
 
-export function pageClassForTheme(theme: TemplateTheme): string | undefined {
-  switch (theme) {
-    case 'landing-dark':
-      return styles.pageThemeLanding;
-    default:
-      return styles.pageThemeLanding;
-  }
+export function pageClassForTheme(_theme: TemplateTheme): string | undefined {
+  void _theme;
+  return styles.pageThemeLanding;
 }
 
 /** Preview article structure varies by pack so layouts read differently from each other. */

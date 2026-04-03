@@ -1,7 +1,8 @@
 import {
   OPENAI_TEMPLATE_ID_ENUM,
   OPENAI_TEMPLATE_THEME_ENUM,
-  TEMPLATE_THEME_BY_PACK,
+  TEMPLATE_DEFAULT_THEME_BY_PACK,
+  TEMPLATE_THEMES_BY_PACK,
 } from '../constants/templatePackRegistry.js';
 import type { TemplatePackId, TemplatePackTheme } from '../types/templatePackRegistry.js';
 import {
@@ -136,17 +137,31 @@ export function mergeIntoAccumulated(
   }
 }
 
-/** Clamp model output to the client allowlist and canonical theme (never throw on wrong id). */
+export type ResolveTemplateSelectionOpts = {
+  /** When set and valid for the resolved pack, wins over the model's `theme` (server rotation / client hint). */
+  serverTheme?: TemplatePackTheme;
+};
+
+/** Clamp model output to the client allowlist; optional server theme overrides model (never throw on wrong id). */
 export function resolveTemplateSelection(
   templateId: string,
-  _theme: string,
+  theme: string,
   candidates: readonly TemplatePackId[],
+  opts?: ResolveTemplateSelectionOpts,
 ): { templateId: TemplatePackId; theme: TemplatePackTheme } {
   const allowed = new Set(candidates);
   const tid: TemplatePackId = allowed.has(templateId as TemplatePackId)
     ? (templateId as TemplatePackId)
     : defaultTemplateIdForCandidates(candidates);
-  return { templateId: tid, theme: TEMPLATE_THEME_BY_PACK[tid] };
+  const allowedThemes = TEMPLATE_THEMES_BY_PACK[tid] as readonly string[];
+  const server = opts?.serverTheme;
+  const picked =
+    server != null && allowedThemes.includes(server)
+      ? server
+      : typeof theme === 'string' && allowedThemes.includes(theme)
+        ? theme
+        : TEMPLATE_DEFAULT_THEME_BY_PACK[tid];
+  return { templateId: tid, theme: picked as TemplatePackTheme };
 }
 
 export function templateIdEnumForRepair(candidates: readonly TemplatePackId[]): TemplatePackId[] {
@@ -157,7 +172,9 @@ export function themeEnumForRepair(candidates: readonly TemplatePackId[]): Templ
   if (candidates.length === 0) return [...OPENAI_TEMPLATE_THEME_ENUM];
   const out = new Set<TemplatePackTheme>();
   for (const id of candidates) {
-    out.add(TEMPLATE_THEME_BY_PACK[id]);
+    for (const t of TEMPLATE_THEMES_BY_PACK[id]) {
+      out.add(t as TemplatePackTheme);
+    }
   }
   return [...out];
 }

@@ -1,4 +1,4 @@
-import { TEMPLATE_THEME_BY_PACK } from '../constants/templatePackRegistry.js';
+import { TEMPLATE_THEMES_BY_PACK } from '../constants/templatePackRegistry.js';
 import type { TemplatePackId } from '../types/templatePackRegistry.js';
 import type {
   FieldGroup,
@@ -151,7 +151,7 @@ export function getFieldPolicyForTemplateId(templateId: string): TemplatePackFie
 
 export function defaultTemplateIdForCandidates(candidates: readonly string[]): TemplatePackId {
   const first = candidates[0];
-  if (first && Object.hasOwn(TEMPLATE_THEME_BY_PACK, first)) {
+  if (first && Object.hasOwn(TEMPLATE_THEMES_BY_PACK, first)) {
     return first as TemplatePackId;
   }
   return 'landing.v1';

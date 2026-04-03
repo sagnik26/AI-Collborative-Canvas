@@ -2,7 +2,7 @@ import {
   type TemplateId,
   type TemplateSchema,
 } from '../../types/template';
-import { TEMPLATE_THEME_BY_PACK } from '../../constants/templateRegistry';
+import { TEMPLATE_THEMES_BY_PACK } from '../../constants/templateRegistry';
 import {
   DEFAULT_TEMPLATE_CANDIDATES,
   TEMPLATE_PACKS,
@@ -20,7 +20,7 @@ export function parseTemplateCandidatesQueryParam(
   const raw = param.split(',').map((s) => s.trim()).filter(Boolean);
   const out: TemplateId[] = [];
   for (const id of raw) {
-    if (Object.hasOwn(TEMPLATE_THEME_BY_PACK, id)) {
+    if (Object.hasOwn(TEMPLATE_THEMES_BY_PACK, id)) {
       out.push(id as TemplateId);
     }
   }
