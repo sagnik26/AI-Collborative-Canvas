@@ -2,6 +2,12 @@
 
 Real-time collaborative canvas and AI-assisted design prototype: **Fabric.js** editing, **Yjs** CRDT sync over WebSocket, and **OpenAI** integration for canvas layout (`/ai/layout`) and streaming template composition (`/ai/compose-template`). The server applies AI output into the same Yjs documents clients already share.
 
+
+
+https://github.com/user-attachments/assets/36fe1501-51b0-46e0-860c-9b25385432f4
+
+
+
 **License:** MIT · **Package manager:** pnpm workspaces
 
 ---
